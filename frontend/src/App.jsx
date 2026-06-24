@@ -264,6 +264,7 @@ export default function App() {
               userEmail={userEmail} 
               handleLogout={handleLogout} 
               userProfile={userProfile} 
+              setUserProfile={setUserProfile}
             />
           } 
         />
