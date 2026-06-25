@@ -63,7 +63,6 @@ class MarketRepository:
             return 0
 
         params = {
-            "select": "id",
             "is_active": "eq.true",
             "symbol": "match.\\d{6}",
         }
@@ -77,11 +76,10 @@ class MarketRepository:
             timeout=30,
         )
         response.raise_for_status()
-        content_range = response.headers.get("Content-Range", "0/0")
-        try:
-            return int(content_range.split("/")[-1])
-        except (ValueError, IndexError):
-            return 0
+
+        content_range = response.headers.get("Content-Range", "0")
+        return int(content_range.split("/")[-1])
+
 
     def list_universe(self, market_segment: str = "ALL", limit: int = 5000) -> list[dict[str, Any]]:
         if not self.is_configured:

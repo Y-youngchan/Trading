@@ -1,9 +1,16 @@
 import argparse
+import sys
 from pathlib import Path
 
 import joblib
 import pandas as pd
 import yaml
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.append(str(PROJECT_ROOT))
+
+from ml.src.model_utils import apply_probability_calibration
 
 
 def load_config(path: str) -> dict:
@@ -35,12 +42,14 @@ def main() -> None:
 
     payload = load_model_payload(model_path)
     model = payload["model"]
+    calibrator = payload.get("calibrator")
     model_config = payload["config"]
     feature_columns = model_config["model"]["feature_columns"]
 
     risk_model_path = args.risk_model or config.get("prediction", {}).get("risk_model_path")
     risk_payload = None
     risk_model = None
+    risk_calibrator = None
     risk_feature_columns: list[str] = []
     if risk_model_path:
         candidate_path = Path(risk_model_path)
@@ -49,28 +58,60 @@ def main() -> None:
         if candidate_path.exists():
             risk_payload = load_model_payload(candidate_path)
             risk_model = risk_payload["model"]
+            risk_calibrator = risk_payload.get("calibrator")
             risk_feature_columns = risk_payload["config"]["model"]["feature_columns"]
 
     df = pd.read_csv(features_path)
     df["date"] = pd.to_datetime(df["date"])
     latest_df = df.sort_values(["symbol", "date"]).groupby("symbol", as_index=False).tail(1).copy()
     up_probabilities = model.predict_proba(latest_df[feature_columns])[:, 1]
+    up_probabilities = apply_probability_calibration(up_probabilities, calibrator)
 
     latest_df["up_probability"] = up_probabilities
     latest_df["up_signal_score"] = (latest_df["up_probability"] * 100).round(2)
     latest_df["up_model_version"] = model_config["model"]["version"]
 
+    asset_type = config["model"].get("asset_type", "STOCK").upper()
+    long_threshold = float(config.get("prediction", {}).get("long_threshold", 0.30))
+    short_threshold = float(config.get("prediction", {}).get("short_threshold", 0.70))
+
     if risk_model is not None:
         risk_probabilities = risk_model.predict_proba(latest_df[risk_feature_columns])[:, 1]
+        risk_probabilities = apply_probability_calibration(risk_probabilities, risk_calibrator)
         latest_df["risk_probability"] = risk_probabilities
         latest_df["risk_signal_score"] = (latest_df["risk_probability"] * 100).round(2)
         latest_df["risk_model_version"] = risk_payload["config"]["model"]["version"]
-        latest_df["signal_score"] = ((latest_df["up_probability"] - latest_df["risk_probability"]) * 100).round(2)
+        
+        positions = []
+        scores = []
+        for idx, row in latest_df.iterrows():
+            up_p = row["up_probability"]
+            risk_p = row["risk_probability"]
+            if asset_type == "CRYPTO":
+                if risk_p < long_threshold:
+                    positions.append("LONG")
+                    scores.append(up_p * 100)
+                elif risk_p > short_threshold:
+                    positions.append("SHORT")
+                    scores.append(risk_p * 100)
+                else:
+                    positions.append("HOLD")
+                    scores.append(0.0)
+            else:
+                if risk_p < long_threshold:
+                    positions.append("LONG")
+                    scores.append(up_p * 100)
+                else:
+                    positions.append("HOLD")
+                    scores.append(0.0)
+        latest_df["position"] = positions
+        latest_df["signal_score"] = [round(s, 2) for s in scores]
         latest_df["scoring_strategy"] = "composite"
     else:
         latest_df["risk_probability"] = 1 - latest_df["up_probability"]
         latest_df["risk_signal_score"] = (latest_df["risk_probability"] * 100).round(2)
         latest_df["risk_model_version"] = ""
+        latest_df["position"] = "LONG"
         latest_df["signal_score"] = latest_df["up_signal_score"]
         latest_df["scoring_strategy"] = "up_only"
 
@@ -88,6 +129,7 @@ def main() -> None:
         "risk_signal_score",
         "signal_score",
         "scoring_strategy",
+        "position",
         "up_model_version",
         "risk_model_version",
         "model_version",

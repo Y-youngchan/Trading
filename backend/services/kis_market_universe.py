@@ -45,12 +45,11 @@ def _normalize_fixed_width_mst_line(line: str, market_segment: str) -> dict[str,
     if not raw.strip():
         return None
 
-    parts = raw.split()
-    if not parts:
+    symbol = raw.split()[0].strip() if raw.split() else ""
+    if not re.fullmatch(r"\d{6}", symbol):
         return None
 
-    symbol = parts[0].strip()
-    if not re.fullmatch(r"\d{6}", symbol):
+    if not symbol:
         return None
 
     name_part = raw.split(symbol, 1)[-1].strip()
@@ -104,7 +103,7 @@ def _load_records_from_file(file_path: str) -> list[dict[str, Any]]:
         reader = csv.DictReader(text.splitlines())
         return [dict(row) for row in reader]
 
-    raise ValueError("지원하지 않는 파일 형식입니다. .mst, .csv, .json 파일만 사용하세요.")
+    raise ValueError("지원하지 않는 파일 형식입니다. .mst, .csv, .json 파일을 사용해주세요.")
 
 
 def normalize_universe_rows(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -117,6 +116,9 @@ def normalize_universe_rows(records: list[dict[str, Any]]) -> list[dict[str, Any
             or row.get("iscd")
             or row.get("stk_cd")
             or row.get("stock_code")
+            or row.get("종목코드")
+            or row.get("단축코드")
+            or row.get("종목번호")
             or ""
         ).strip()
         name = str(
@@ -124,6 +126,8 @@ def normalize_universe_rows(records: list[dict[str, Any]]) -> list[dict[str, Any
             or row.get("hname")
             or row.get("stock_name")
             or row.get("issue_name")
+            or row.get("종목명")
+            or row.get("한글명")
             or ""
         ).strip()
 
@@ -135,26 +139,27 @@ def normalize_universe_rows(records: list[dict[str, Any]]) -> list[dict[str, Any
             or row.get("market")
             or row.get("market_division")
             or row.get("market_nm")
+            or row.get("시장구분")
+            or row.get("시장명")
             or "OTHER"
         ).strip().upper()
         if market_segment not in {"KOSPI", "KOSDAQ", "KONEX", "ETF", "ETN"}:
             market_segment = "OTHER"
 
-        listed_at = str(row.get("listed_at") or row.get("listing_date") or "").strip()
 
-        normalized.append(
-            {
-                "symbol": symbol.replace(" ", "").replace(".", "").upper(),
-                "name": name,
-                "market_segment": market_segment,
-                "market_country": "KR",
-                "asset_type": "STOCK",
-                "source": "KIS",
-                "listed_at": listed_at or None,
-                "source_file_row": dict(row),
-                "is_active": True,
-            }
-        )
+        listed_at = str(row.get("listed_at") or row.get("listing_date") or row.get("상장일") or row.get("상장일자") or "").strip()
+
+        normalized.append({
+            "symbol": symbol.replace(" ", "").replace(".", "").upper(),
+            "name": name,
+            "market_segment": market_segment,
+            "market_country": "KR",
+            "asset_type": "STOCK",
+            "source": "KIS",
+            "listed_at": listed_at or None,
+            "source_file_row": dict(row),
+            "is_active": True,
+        })
 
     return normalized
 
@@ -207,13 +212,13 @@ def build_turnover_snapshot_rows(
             try:
                 snapshots.append(future.result())
             except Exception as exc:
-                errors.append(
-                    {
-                        "symbol": row.get("symbol"),
-                        "name": row.get("name"),
-                        "error": str(exc),
-                    }
-                )
+
+                errors.append({
+                    "symbol": row.get("symbol"),
+                    "name": row.get("name"),
+                    "error": str(exc),
+                })
+
 
     snapshots.sort(key=lambda item: item["trading_value"], reverse=True)
     return snapshots, errors
@@ -240,36 +245,25 @@ class KISMarketUniverseService:
         file_paths: list[str],
         kis_client: KISClient,
         refresh_quotes: bool = True,
-        refresh_master: bool = True,
         max_workers: int = 4,
         quote_limit: int | None = 300,
     ) -> dict[str, Any]:
-        master_rows: list[dict[str, Any]] = []
-        if refresh_master:
-            records: list[dict[str, Any]] = []
-            for file_path in file_paths:
-                records.extend(_load_records_from_file(file_path))
+        records: list[dict[str, Any]] = []
+        for file_path in file_paths:
+            records.extend(_load_records_from_file(file_path))
 
-            master_rows = normalize_universe_rows(records)
-            master_rows = _dedupe_rows(master_rows)
-            if not master_rows:
-                raise ValueError("종목 정보 파일에서 저장할 종목을 찾지 못했습니다.")
+        master_rows = normalize_universe_rows(records)
+        master_rows = _dedupe_rows(master_rows)
+        if not master_rows:
+            raise ValueError("종목 정보 파일에서 저장할 종목을 찾지 못했습니다.")
+        self.repository.upsert_stock_master(master_rows)
 
-            self.repository.upsert_stock_master(master_rows)
-        else:
-            master_rows = self.repository.list_universe(limit=quote_limit or 300)
-            if not master_rows:
-                raise ValueError("Supabase에서 종목 마스터를 찾지 못했습니다. 먼저 master 동기화를 실행하세요.")
 
         quote_rows: list[dict[str, Any]] = []
         quote_errors: list[dict[str, Any]] = []
         if refresh_quotes:
             quote_target_rows = master_rows[:quote_limit] if quote_limit else master_rows
-            quote_rows, quote_errors = build_turnover_snapshot_rows(
-                quote_target_rows,
-                kis_client,
-                max_workers=max_workers,
-            )
+            quote_rows, quote_errors = build_turnover_snapshot_rows(quote_target_rows, kis_client, max_workers=max_workers)
             self.repository.upsert_turnover_latest(quote_rows)
 
         return {
@@ -286,7 +280,6 @@ class KISMarketUniverseService:
         file_path: str,
         kis_client: KISClient,
         refresh_quotes: bool = True,
-        refresh_master: bool = True,
         max_workers: int = 4,
         quote_limit: int | None = 300,
     ) -> dict[str, Any]:
@@ -294,7 +287,6 @@ class KISMarketUniverseService:
             [file_path],
             kis_client=kis_client,
             refresh_quotes=refresh_quotes,
-            refresh_master=refresh_master,
             max_workers=max_workers,
             quote_limit=quote_limit,
         )
