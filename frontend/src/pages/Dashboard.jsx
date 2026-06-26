@@ -9,7 +9,7 @@ import WatchlistTab from './WatchlistTab.jsx'
 import AssetsTab from './AssetsTab.jsx'
 import TradeHistoryTab from './TradeHistoryTab.jsx'
 
-export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userProfile }) {
+export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userProfile, setUserProfile }) {
   const [inputs, setInputs] = useState({
     appkey: '',
     appsecret: '',
@@ -574,6 +574,7 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
               userEmail={userEmail}
               handleLogout={handleLogout}
               userProfile={userProfile}
+              setUserProfile={setUserProfile}
               hideHeader={true}
             />
           )}

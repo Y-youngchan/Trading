@@ -257,6 +257,16 @@ export default function App() {
             />
           }
         />
+        <Route
+          path="/Home"
+          element={
+            <Home
+              isLoggedIn={isLoggedIn}
+              userEmail={userEmail}
+              handleLogout={handleLogout}
+            />
+          }
+        />
         <Route 
           path="/dashboard" 
           element={
