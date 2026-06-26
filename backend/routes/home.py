@@ -43,7 +43,7 @@ def calculate_portfolio_profit_rate(balance: dict) -> float:
     return (total_profit / invested_amount) * 100
 
 
-def save_portfolio_snapshot(auth_header: str, user_id: str, balance: dict, exchange_rate: float = 1380.0):
+def save_portfolio_snapshot(auth_header: str, user_id: str, balance: dict, exchange_rate: float = 1500.0):
     snapshot_date = datetime.utcnow().date().isoformat()
     total_eval = to_float(balance.get("total_evaluation"))
     avail_cash = to_float(balance.get("available_cash"))
@@ -403,7 +403,7 @@ def get_dashboard_balance():
             return jsonify({"success": False, "message": f"지원하지 않는 거래소: {exchange}"}), 400
 
         # 통화가 USD인 경우 자산 누적 추이를 위한 환율 구하기
-        exchange_rate = 1380.0
+        exchange_rate = 1500.0
         if exchange == "TOSS" and hasattr(client, "get_exchange_rate"):
             exchange_rate = client.get_exchange_rate()
 
@@ -411,6 +411,9 @@ def get_dashboard_balance():
             save_portfolio_snapshot(auth_header, user_id, balance, exchange_rate)
         except Exception:
             pass
+
+        # 프론트엔드 환산에 대응하기 위해 exchange_rate 필드를 함께 응답에 주입
+        balance["exchange_rate"] = exchange_rate
 
         return jsonify({
             "success": True,

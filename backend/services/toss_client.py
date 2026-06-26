@@ -9,11 +9,6 @@ from backend.services.exchange_client import ExchangeClient
 
 KST = timezone(timedelta(hours=9))
 
-# 토큰 캐시 파일을 toss_client.py 기준 절대경로로 고정 (Flask 실행 위치에 무관)
-_THIS_DIR = Path(__file__).resolve().parent.parent  # backend/
-TOSS_TOKEN_CACHE_FILE = str(_THIS_DIR / ".toss_token_cache.json")
-
-
 def _floor_kst_bucket_timestamp(timestamp: int, interval_minutes: int) -> int:
     """
     유닉스 타임스탬프를 한국시간 기준 캔들 시작 시각으로 내림 정렬합니다.
@@ -36,67 +31,42 @@ class TossClient(ExchangeClient):
 
     def _clear_token_cache(self):
         """
-        로컬 캐시 파일에서 현재 client_id에 해당하는 토큰 정보를 삭제하여 갱신을 강제합니다.
+        DB 캐시 테이블에서 현재 exchange/env에 해당하는 토큰 정보를 강제 만료시킵니다.
         """
-        cache = {}
-        if os.path.exists(TOSS_TOKEN_CACHE_FILE):
-            try:
-                with open(TOSS_TOKEN_CACHE_FILE, "r") as f:
-                    cache = json.load(f)
-            except Exception:
-                pass
-        if self.client_id in cache:
-            del cache[self.client_id]
-            try:
-                with open(TOSS_TOKEN_CACHE_FILE, "w") as f:
-                    json.dump(cache, f, indent=2)
-            except Exception:
-                pass
+        from backend.services.token_cache_service import clear_db_token
+        try:
+            clear_db_token("TOSS", self.env)
+        except Exception:
+            pass
 
     def _get_cached_token(self) -> str:
         """
-        로컬 캐시 파일에서 토스 Access Token을 가져옵니다.
+        Supabase DB의 token_caches 테이블에서 토스 Access Token을 가져옵니다.
         토큰이 만료되었거나 캐시가 없으면 새로 발급을 요청합니다.
         """
-        cache = {}
-        if os.path.exists(TOSS_TOKEN_CACHE_FILE):
-            try:
-                with open(TOSS_TOKEN_CACHE_FILE, "r") as f:
-                    cache = json.load(f)
-            except Exception:
-                pass
-
-        client_cache = cache.get(self.client_id, {})
-        token = client_cache.get("access_token")
-        expired_at_str = client_cache.get("expired_at")
-
-        if token and expired_at_str:
-            try:
-                expired_at = datetime.strptime(expired_at_str, "%Y-%m-%d %H:%M:%S")
-                # 만료 5분 전(300초) 이상 남아있는 경우에만 기존 토큰 사용
-                if (expired_at - datetime.now()).total_seconds() > 300:
-                    return token
-            except Exception:
-                pass
+        from backend.services.token_cache_service import get_db_token, set_db_token
+        
+        # DB에서 유효한 공용 토큰 획득 시도
+        try:
+            token = get_db_token("TOSS", self.env)
+            if token:
+                return token
+        except Exception:
+            pass
 
         # 토큰 새로 발급
         token_data = self._request_new_token()
         new_token = token_data["access_token"]
         expires_in = int(token_data.get("expires_in", 86400))
 
-        expired_at = datetime.now() + timedelta(seconds=expires_in)
-        cache[self.client_id] = {
-            "access_token": new_token,
-            "expired_at": expired_at.strftime("%Y-%m-%d %H:%M:%S")
-        }
-
+        # DB 캐시 테이블에 신규 토큰 저장 (Upsert)
         try:
-            with open(TOSS_TOKEN_CACHE_FILE, "w") as f:
-                json.dump(cache, f, indent=2)
+            set_db_token("TOSS", self.env, new_token, expires_in)
         except Exception:
             pass
 
         return new_token
+
 
     def _request_new_token(self) -> dict:
         """
@@ -226,7 +196,7 @@ class TossClient(ExchangeClient):
                 current_price = float(item.get("lastPrice", 0) or 0)
                 pl = item.get("profitLoss", {})
                 profit = float(pl.get("amount", 0) or 0)
-                profit_rate = float(pl.get("rate", 0) or 0)
+                profit_rate = float(pl.get("rate", 0) or 0) * 100.0
                 mv_item = item.get("marketValue", {})
                 eval_amount = float(mv_item.get("amount", 0) or 0)
             except (ValueError, TypeError):
@@ -584,14 +554,18 @@ class TossClient(ExchangeClient):
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json"
         }
-        res = requests.get(url, headers=headers)
+        params = {
+            "baseCurrency": "USD",
+            "quoteCurrency": "KRW"
+        }
+        res = requests.get(url, headers=headers, params=params)
         if res.status_code == 200:
             data = res.json()
             result = data.get("result", {})
-            rate = result.get("basePrice") or result.get("rate") or result.get("exchangeRate") or result.get("price")
+            rate = result.get("rate") or result.get("basePrice") or result.get("exchangeRate") or result.get("price")
             if rate:
                 return float(rate)
-        return 1380.0
+        return 1500.0
 
     def get_exchange_rate(self) -> float:
         """
@@ -607,7 +581,7 @@ class TossClient(ExchangeClient):
                     return self._get_exchange_rate_impl()
                 except Exception:
                     pass
-            return 1380.0
+            return 1500.0
 
         # 2. 토스 미지원 주기인 경우 자체 리샘플링
         # 2-A. 분봉/시간봉 리샘플링 (5m, 15m, 30m, 1h, 60m 등)
