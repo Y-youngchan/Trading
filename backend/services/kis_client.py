@@ -27,6 +27,16 @@ def _enforce_kis_mock_rate_limit(env: str):
             time.sleep(sleep_time)
         _last_kis_mock_request_time = time.time()
 
+
+def _floor_kst_bucket_timestamp(timestamp: int, interval_minutes: int) -> int:
+    """
+    유닉스 타임스탬프를 한국시간 기준 캔들 시작 시각으로 내림 정렬합니다.
+    """
+    dt_kst = datetime.fromtimestamp(timestamp, tz=KST)
+    bucket_minute = (dt_kst.minute // interval_minutes) * interval_minutes
+    bucket_dt = dt_kst.replace(minute=bucket_minute, second=0, microsecond=0)
+    return int(bucket_dt.timestamp())
+
 # 스케줄러와 웹 요청 스레드 간의 토큰 파일 경로 공유 및 중복 획득 제한
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 TOKEN_CACHE_FILE = str(PROJECT_ROOT / ".kis_token_cache.json")
@@ -721,10 +731,9 @@ class KISClient(ExchangeClient):
             return formatted[-count:]
             
         # 리샘플링 진행
-        interval_seconds = interval_minutes * 60
         buckets = {}
         for c in unique_candles:
-            bucket_ts = (c["timestamp"] // interval_seconds) * interval_seconds
+            bucket_ts = _floor_kst_bucket_timestamp(c["timestamp"], interval_minutes)
             if bucket_ts not in buckets:
                 buckets[bucket_ts] = []
             buckets[bucket_ts].append(c)

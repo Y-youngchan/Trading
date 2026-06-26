@@ -14,7 +14,7 @@ CANDLE_CACHE = {}
 ORDERBOOK_CACHE = {}
 TRADES_CACHE = {}
 CACHE_TTL_SECONDS = 10  # 10초 유효
-LEVEL2_CACHE_TTL_SECONDS = 3
+LEVEL2_CACHE_TTL_SECONDS = 10
 REAL_ORDER_LIMIT_KRW = 100000.0
 
 # API 호출 동시성 제어를 위한 Lock 딕셔너리 (Request Collapsing용)
@@ -535,8 +535,7 @@ def place_manual_order():
             "market_country": market_country,
             "currency": currency,
             "external_order_id": order_res.get("order_id"),
-            "status": "EXECUTED",
-            "created_at": datetime.now().isoformat()
+            "status": "EXECUTED"
         }
         query_supabase(auth_header, "trade_proposals", "POST", json_data=proposal_data)
     except Exception as e:
