@@ -15,6 +15,7 @@ from backend.services.news_summary_service import NewsSummaryService
 from backend.services.kis_market_universe import KISMarketUniverseService
 from backend.services.market_snapshot_scheduler import start_market_snapshot_scheduler
 from backend.services.ml_scheduler import start_news_ingest_scheduler, start_ml_automation_scheduler
+from backend.services.portfolio_snapshot_scheduler import start_portfolio_snapshot_scheduler
 
 from backend.routes.home import home_bp
 from backend.routes.keys import keys_bp
@@ -49,6 +50,9 @@ HOME_MARKET_OPEN_INTERVAL_SECONDS = int(os.getenv("HOME_MARKET_OPEN_INTERVAL_SEC
 HOME_MARKET_CLOSED_INTERVAL_SECONDS = int(os.getenv("HOME_MARKET_CLOSED_INTERVAL_SECONDS", "600"))
 HOME_MARKET_SNAPSHOT_LIMIT = int(os.getenv("HOME_MARKET_SNAPSHOT_LIMIT", "300"))
 HOME_MARKET_SNAPSHOT_WORKERS = int(os.getenv("HOME_MARKET_SNAPSHOT_WORKERS", "2"))
+PORTFOLIO_SNAPSHOT_ENABLED = os.getenv("PORTFOLIO_SNAPSHOT_ENABLED", "true").lower() == "true"
+PORTFOLIO_SNAPSHOT_INTERVAL_SECONDS = int(os.getenv("PORTFOLIO_SNAPSHOT_INTERVAL_SECONDS", "60"))
+PORTFOLIO_SNAPSHOT_RUN_ON_START = os.getenv("PORTFOLIO_SNAPSHOT_RUN_ON_START", "false").lower() == "true"
 
 # Flask Config에 값 바인딩
 app.config["KIS_APPKEY"] = KIS_APPKEY
@@ -104,6 +108,12 @@ if __name__ == "__main__":
             closed_interval_seconds=HOME_MARKET_CLOSED_INTERVAL_SECONDS,
             quote_limit=HOME_MARKET_SNAPSHOT_LIMIT,
             max_workers=HOME_MARKET_SNAPSHOT_WORKERS,
+        )
+        start_portfolio_snapshot_scheduler(
+            crypto_helper=crypto,
+            enabled=PORTFOLIO_SNAPSHOT_ENABLED,
+            interval_seconds=PORTFOLIO_SNAPSHOT_INTERVAL_SECONDS,
+            run_on_start=PORTFOLIO_SNAPSHOT_RUN_ON_START,
         )
     # Flask 서버 구동
     app.run(host="0.0.0.0", port=5050, debug=True)
