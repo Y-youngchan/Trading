@@ -9,6 +9,24 @@ from backend.services.exchange_client import ExchangeClient
 
 KST = timezone(timedelta(hours=9))
 
+# KIS 모의투자 API Rate Limiter
+_kis_mock_rate_limiter_lock = threading.Lock()
+_last_kis_mock_request_time = 0.0
+KIS_MOCK_MIN_INTERVAL = 0.5  # 초당 3회 한도 방어를 위해 최소 0.5초 간격 유지
+
+
+def _enforce_kis_mock_rate_limit(env: str):
+    global _last_kis_mock_request_time
+    if env.upper() != "MOCK":
+        return
+    with _kis_mock_rate_limiter_lock:
+        now = time.time()
+        elapsed = now - _last_kis_mock_request_time
+        if elapsed < KIS_MOCK_MIN_INTERVAL:
+            sleep_time = KIS_MOCK_MIN_INTERVAL - elapsed
+            time.sleep(sleep_time)
+        _last_kis_mock_request_time = time.time()
+
 # 스케줄러와 웹 요청 스레드 간의 토큰 파일 경로 공유 및 중복 획득 제한
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 TOKEN_CACHE_FILE = str(PROJECT_ROOT / ".kis_token_cache.json")
@@ -79,6 +97,7 @@ class KISClient(ExchangeClient):
             return new_token
 
     def _request_new_token(self) -> dict:
+        _enforce_kis_mock_rate_limit(self.env)
         url = f"{self.base_url}/oauth2/tokenP"
         payload = {
             "grant_type": "client_credentials",
@@ -94,6 +113,7 @@ class KISClient(ExchangeClient):
         return res.json()
 
     def get_price(self, symbol: str) -> dict:
+        _enforce_kis_mock_rate_limit(self.env)
         url = f"{self.base_url}/uapi/domestic-stock/v1/quotations/inquire-price"
         token = self._get_cached_token()
         headers = {
@@ -262,6 +282,7 @@ class KISClient(ExchangeClient):
         source: str,
         limit: int,
     ) -> list[dict]:
+        _enforce_kis_mock_rate_limit(self.env)
         token = self._get_cached_token()
         headers = {
             "content-type": "application/json; charset=utf-8",
@@ -361,6 +382,7 @@ class KISClient(ExchangeClient):
         return rows
 
     def get_balance(self) -> dict:
+        _enforce_kis_mock_rate_limit(self.env)
         url = f"{self.base_url}/uapi/domestic-stock/v1/trading/inquire-balance"
         token = self._get_cached_token()
         headers = {
@@ -452,6 +474,7 @@ class KISClient(ExchangeClient):
         :param ord_type: 호가 구분 ("LIMIT" 또는 "MARKET")
         :param price: 주문 단가 (LIMIT일 때 필수, MARKET일 때는 0 또는 생략 가능)
         """
+        _enforce_kis_mock_rate_limit(self.env)
         url = f"{self.base_url}/uapi/domestic-stock/v1/trading/order-cash"
         token = self._get_cached_token()
         
@@ -512,6 +535,7 @@ class KISClient(ExchangeClient):
         :param interval: 기간 구분 ("D": 일, "W": 주, "M": 월)
         :param count: 가져올 캔들 개수
         """
+        _enforce_kis_mock_rate_limit(self.env)
         url = f"{self.base_url}/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice"
         token = self._get_cached_token()
         # 모의투자 및 실전투자 모두 FHKST03010100을 사용합니다.
@@ -576,6 +600,7 @@ class KISClient(ExchangeClient):
         :param interval_minutes: 분봉 간격 (1, 5, 15, 30, 60 등)
         :param count: 가져올 최종 캔들 개수
         """
+        _enforce_kis_mock_rate_limit(self.env)
         url = f"{self.base_url}/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice"
         token = self._get_cached_token()
         headers = {
@@ -721,6 +746,7 @@ class KISClient(ExchangeClient):
         """
         국내주식 호가 조회를 수행합니다. 매도/매수 10단계 호가 및 잔량을 리턴합니다.
         """
+        _enforce_kis_mock_rate_limit(self.env)
         url = f"{self.base_url}/uapi/domestic-stock/v1/quotations/inquire-asking-price-exp-ccn"
         token = self._get_cached_token()
         headers = {
@@ -748,6 +774,7 @@ class KISClient(ExchangeClient):
         """
         국내주식 실시간 체결 조회를 수행합니다. (최근 체결 30건 등)
         """
+        _enforce_kis_mock_rate_limit(self.env)
         url = f"{self.base_url}/uapi/domestic-stock/v1/quotations/inquire-time-itemconclusion"
         token = self._get_cached_token()
         headers = {
