@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
-import { supabase } from '../supabaseClient'
+import { fetchUserWatchlist, supabase } from '../supabaseClient'
 import Header from '../components/Header.jsx'
 import Settings from './Settings'
-import { ASSET_PERIOD_OPTIONS, WATCHLIST_MOCK } from '../dashboardConstants.js'
+import { ASSET_PERIOD_OPTIONS } from '../dashboardConstants.js'
 import { Rate, SectionHeader, SidebarNav, Sparkline } from '../components/DashboardComponents.jsx'
 import { getAssetPeriodRange } from '../dashboardUtils.js'
 import WatchlistTab from './WatchlistTab.jsx'
@@ -276,6 +276,9 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
   const [balanceLoading, setBalanceLoading] = useState(false)
   const [showMockAssets, setShowMockAssets] = useState(true)
   const [rawBalances, setRawBalances] = useState([])
+  const [dashboardWatchlist, setDashboardWatchlist] = useState([])
+  const [watchlistLoading, setWatchlistLoading] = useState(false)
+  const [watchlistError, setWatchlistError] = useState('')
 
   const [holdingsSort, setHoldingsSort] = useState({ key: null, direction: 'asc' })
 
@@ -477,6 +480,36 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
   useEffect(() => {
     loadAccountBalance()
   }, [isLoggedIn])
+
+  useEffect(() => {
+    let isMounted = true
+
+    async function loadDashboardWatchlist() {
+      if (!isLoggedIn) {
+        setDashboardWatchlist([])
+        return
+      }
+
+      setWatchlistLoading(true)
+      setWatchlistError('')
+      try {
+        const items = await fetchUserWatchlist()
+        if (isMounted) setDashboardWatchlist(items)
+      } catch (error) {
+        if (!isMounted) return
+        setDashboardWatchlist([])
+        setWatchlistError(error.message || '관심종목을 불러오지 못했습니다.')
+      } finally {
+        if (isMounted) setWatchlistLoading(false)
+      }
+    }
+
+    loadDashboardWatchlist()
+
+    return () => {
+      isMounted = false
+    }
+  }, [isLoggedIn, activeTab])
 
   useEffect(() => {
     loadAssetTrend()
@@ -874,7 +907,7 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-800/40">
-                        {WATCHLIST_MOCK.map((item) => {
+                        {dashboardWatchlist.map((item) => {
                           const isForeign = /[a-zA-Z]/.test(item.id) || item.market.includes('해외')
                           const stockCurrency = isForeign ? 'USD' : 'KRW'
                           const numericPrice = parseFloat(item.average.replace(/[^0-9.-]/g, '')) || 0
@@ -891,8 +924,16 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
                             </tr>
                           )
                         })}
+                        {!watchlistLoading && dashboardWatchlist.length === 0 ? (
+                          <tr>
+                            <td className="px-3 py-8 text-center text-slate-500" colSpan={4}>
+                              관심종목이 없습니다. 하트를 눌러 관심 종목을 추가해주세요.
+                            </td>
+                          </tr>
+                        ) : null}
                       </tbody>
                     </table>
+                    {watchlistError ? <p className="mt-2 text-xs text-red-300">{watchlistError}</p> : null}
                   </div>
                 </div>
 
