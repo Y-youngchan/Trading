@@ -161,9 +161,23 @@ const automationPresets = [
     version: 'v8',
     isNew: true,
   },
+  {
+    key: 'kr-stock-v1-full',
+    label: '국내 주식 v1 자동 수집+학습 (분리)',
+    summary: '국내 주식 3분리 자동 수집 후 학습까지 한 번에 실행',
+    version: 'split-v1',
+    isNew: true,
+  },
+  {
+    key: 'us-stock-v1-full',
+    label: '미국 주식 v1 자동 수집+학습 (분리)',
+    summary: '미국 주식 3분리 자동 수집 후 학습까지 한 번에 실행',
+    version: 'split-v1',
+    isNew: true,
+  },
 ]
 
-const operationalAutomationPresets = automationPresets.filter((preset) => preset.version === 'v8')
+const operationalAutomationPresets = automationPresets.filter((preset) => preset.version === 'v8' || preset.version === 'split-v1')
 const legacyAutomationPresets = automationPresets.filter((preset) => preset.version !== 'v8')
 const v8TuningPresets = tuningPresets.filter((preset) => preset.version === 'v8')
 
@@ -2561,6 +2575,7 @@ export default function AdminMlData({ isLoggedIn, userEmail, handleLogout, hideH
       await loadJobHistory()
       await loadRegistry()
       await loadServingAudit()
+      // 국내/해외 분리 모델도 현재 registry asset_type은 STOCK으로 동기화합니다.
       await loadActiveSignals(preset.key.includes('crypto') ? 'CRYPTO' : 'STOCK')
       await loadReadiness()
       await loadReportHistory()
