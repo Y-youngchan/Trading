@@ -71,3 +71,59 @@ tests/backend/test_ml_split_model_promotion_service.py ..                [100%]
 ## 3. 코드 파일 정보 및 링크
 - **구현 파일**: [ml_split_model_promotion_service.py](file:///Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/backend/services/ml_split_model_promotion_service.py)
 - **테스트 파일**: [test_ml_split_model_promotion_service.py](file:///Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/tests/backend/test_ml_split_model_promotion_service.py)
+
+---
+
+## 4. 버그 픽스 (Bug Fix) 및 최종 검증
+
+리뷰어의 피드백을 반영하여 다음과 같이 버그 픽스를 완료하였습니다:
+
+### 4.1 수정 내역
+1. **데이터 딕셔너리 구조 중첩(nested) 반영**:
+   - `excess_return_net` 및 `max_drawdown_net`은 `backtest_composite_summary` 딕셔너리 내부에서 안전하게 파싱합니다.
+   - `roc_auc` 및 `precision_at_top_10pct`는 `risk_metrics` 딕셔너리 내부에서 안전하게 파싱합니다.
+2. **반환 포맷 명세 일치**:
+   - 반환 딕셔너리에 `passed`, `checks`, `baseline`, `candidate` 4개의 탑레벨 키가 모두 제공되도록 수정하였습니다.
+   - `checks` 하위 리스트의 딕셔너리 키를 기존 `metric`에서 `name`으로 변경하였습니다.
+   - `baseline`과 `candidate` 요약 구조에 아래 키 매핑이 적용되도록 처리했습니다:
+     - `composite_excess_return_net`
+     - `max_drawdown_net`
+     - `risk_roc_auc`
+     - `risk_precision_at_top_10pct`
+3. **테스트 코드 보강**:
+   - `tests/backend/test_ml_split_model_promotion_service.py` 내부의 flat 딕셔너리 구조 테스트 데이터를 모두 nested 딕셔너리 구조로 전정하여 검증하도록 보강했습니다.
+
+### 4.2 최종 테스트 실행 로그
+```bash
+$ PYTHONPATH=. pytest tests/backend/test_ml_split_model_promotion_service.py
+============================= test session starts ==============================
+platform darwin -- Python 3.13.5, pytest-8.3.4, pluggy-1.5.0
+rootdir: /Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject
+plugins: langsmith-0.7.26, anyio-4.7.0
+collected 2 items
+
+tests/backend/test_ml_split_model_promotion_service.py ..                [100%]
+
+============================== 2 passed in 0.01s ===============================
+```
+
+```bash
+$ PYTHONPATH=. pytest tests/
+============================= test session starts ==============================
+platform darwin -- Python 3.13.5, pytest-8.3.4, pluggy-1.5.0
+rootdir: /Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject
+plugins: langsmith-0.7.26, anyio-4.7.0
+collected 18 items
+
+tests/backend/test_export_dart_features.py .....                         [ 27%]
+tests/backend/test_ml_automation_presets.py ..                           [ 38%]
+tests/backend/test_ml_scheduler_presets.py .                             [ 44%]
+tests/backend/test_ml_split_model_promotion_service.py ..                [ 55%]
+tests/ml/test_build_features_optional_paths.py .....                     [ 83%]
+tests/ml/test_split_stock_configs.py ..                                  [ 94%]
+tests/ml/test_training_universes.py .                                    [100%]
+
+============================== 18 passed in 1.22s ==============================
+```
+수정된 내용이 정상 작동하며, 백엔드 테스트 18개가 모두 성공적으로 패스함을 검증했습니다.
+

@@ -25,20 +25,30 @@ def evaluate_split_model_candidate(baseline: dict, candidate: dict) -> dict[str,
         candidate = {}
 
     # Define metrics and their check rules
-    # Tuple format: (metric_name, comparator, is_strict_improvement, default_val_if_missing)
+    # Tuple format: (name_in_result, category, source_key, comparator, is_strict_improvement, default_val_if_missing)
     metric_rules = [
-        ("excess_return_net", ">", True, 0.0),
-        ("max_drawdown_net", ">=", False, -1.0),
-        ("roc_auc", ">=", False, 0.0),
-        ("precision_at_top_10pct", ">=", False, 0.0),
+        ("composite_excess_return_net", "backtest_composite_summary", "excess_return_net", ">", True, 0.0),
+        ("max_drawdown_net", "backtest_composite_summary", "max_drawdown_net", ">=", False, -1.0),
+        ("risk_roc_auc", "risk_metrics", "roc_auc", ">=", False, 0.0),
+        ("risk_precision_at_top_10pct", "risk_metrics", "precision_at_top_10pct", ">=", False, 0.0),
     ]
 
     checks = []
     all_passed = True
+    baseline_summary = {}
+    candidate_summary = {}
 
-    for metric, comparator, strict_improvement, default_val in metric_rules:
-        baseline_val = safe_float(baseline.get(metric), default_val)
-        candidate_val = safe_float(candidate.get(metric), default_val)
+    for name, category, source_key, comparator, strict_improvement, default_val in metric_rules:
+        # Safely extract from nested dictionaries
+        baseline_cat = baseline.get(category, {})
+        if not isinstance(baseline_cat, dict):
+            baseline_cat = {}
+        baseline_val = safe_float(baseline_cat.get(source_key), default_val)
+
+        candidate_cat = candidate.get(category, {})
+        if not isinstance(candidate_cat, dict):
+            candidate_cat = {}
+        candidate_val = safe_float(candidate_cat.get(source_key), default_val)
 
         if strict_improvement:
             passed = candidate_val > baseline_val
@@ -49,14 +59,20 @@ def evaluate_split_model_candidate(baseline: dict, candidate: dict) -> dict[str,
             all_passed = False
 
         checks.append({
-            "metric": metric,
+            "name": name,
             "passed": passed,
             "baseline": baseline_val,
             "candidate": candidate_val,
             "comparator": comparator
         })
 
+        baseline_summary[name] = baseline_val
+        candidate_summary[name] = candidate_val
+
     return {
         "passed": all_passed,
-        "checks": checks
+        "checks": checks,
+        "baseline": baseline_summary,
+        "candidate": candidate_summary
     }
+
