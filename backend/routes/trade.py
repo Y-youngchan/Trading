@@ -2698,6 +2698,7 @@ def get_quote():
     경량 시세 조회 API.
     전일대비 등락률(change_rate)을 차트 주기와 독립적으로 반환합니다.
     기존 get_cached_change_rate 캐시를 재활용하여 거래소 추가 호출을 최소화합니다.
+    change_rate가 0인 경우, 일봉 캔들 캐시에서 전일 종가를 기반으로 직접 계산합니다.
     """
     exchange = request.args.get("exchange")
     symbol = request.args.get("symbol")
@@ -2713,12 +2714,30 @@ def get_quote():
     auth_header = request.headers.get("Authorization")
     change_rate = get_cached_change_rate(exchange, symbol, broker_env, auth_header)
 
+    # Fallback: change_rate가 0이면 일봉 캔들 캐시에서 전일 종가 기반으로 직접 계산
+    current_price = None
+    if change_rate == 0.0:
+        candle_key = (exchange, symbol, "1d", broker_env)
+        now = time.time()
+        if candle_key in CANDLE_CACHE:
+            expire_time, cached_candles = CANDLE_CACHE[candle_key]
+            if now < expire_time and isinstance(cached_candles, list) and len(cached_candles) >= 2:
+                try:
+                    today_close = float(cached_candles[-1].get("close") or 0)
+                    prev_close = float(cached_candles[-2].get("close") or 0)
+                    if prev_close > 0:
+                        change_rate = round(((today_close - prev_close) / prev_close) * 100, 4)
+                        current_price = today_close
+                except (ValueError, TypeError, KeyError):
+                    pass
+
     return jsonify({
         "success": True,
         "data": {
             "change_rate": change_rate,
             "exchange": exchange,
             "symbol": symbol,
+            **({"current_price": current_price} if current_price is not None else {}),
         }
     })
 

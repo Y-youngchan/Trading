@@ -1941,14 +1941,37 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
       const chartEx = exchange
       const chartEnv = brokerEnv
       const chartSymbol = resolvedSymbol || symbol
-      const url = `${API_BASE_URL}/api/chart/quote?exchange=${chartEx}&symbol=${encodeURIComponent(chartSymbol)}&broker_env=${chartEnv}`
       const headers = {}
       if (authHeader) headers['Authorization'] = authHeader
+
+      // 1차: quote API 조회
+      const url = `${API_BASE_URL}/api/chart/quote?exchange=${chartEx}&symbol=${encodeURIComponent(chartSymbol)}&broker_env=${chartEnv}`
       const res = await fetch(url, { headers })
-      if (!res.ok) return
-      const json = await res.json()
-      if (json.success && json.data && typeof json.data.change_rate === 'number') {
-        setPriceChangeRate(json.data.change_rate)
+      if (res.ok) {
+        const json = await res.json()
+        if (json.success && json.data && typeof json.data.change_rate === 'number' && json.data.change_rate !== 0) {
+          setPriceChangeRate(json.data.change_rate)
+          return
+        }
+      }
+
+      // 2차 fallback: 일봉 캔들 2개로 직접 계산
+      const candleUrl = `${API_BASE_URL}/api/chart/candles?exchange=${chartEx}&symbol=${encodeURIComponent(chartSymbol)}&interval=1d&broker_env=${chartEnv}&count=2`
+      const candleRes = await fetch(candleUrl, { headers })
+      if (candleRes.ok) {
+        const candleJson = await candleRes.json()
+        if (candleJson.success && candleJson.data && candleJson.data.length >= 2) {
+          const prevClose = parseFloat(candleJson.data[candleJson.data.length - 2].close || 0)
+          const todayClose = parseFloat(candleJson.data[candleJson.data.length - 1].close || 0)
+          if (prevClose > 0) {
+            setPriceChangeRate(((todayClose - prevClose) / prevClose) * 100)
+            return
+          }
+        }
+        // 캔들 meta에 change_rate가 있으면 사용
+        if (candleJson.meta && typeof candleJson.meta.change_rate === 'number' && candleJson.meta.change_rate !== 0) {
+          setPriceChangeRate(candleJson.meta.change_rate)
+        }
       }
     } catch (err) {
       // quote fetch failure is non-critical
