@@ -193,8 +193,6 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
   const [loadingChart, setLoadingChart] = useState(true)
   const [currentPrice, setCurrentPrice] = useState(0)
   const [priceChangeRate, setPriceChangeRate] = useState(0)
-  const [previousClosePrice, setPreviousClosePrice] = useState(null)
-  const [hasAuthoritativeChangeRate, setHasAuthoritativeChangeRate] = useState(false)
   const [oppositeCurrentPrice, setOppositeCurrentPrice] = useState(null)
 
   // 4. 주문 폼 상태
@@ -419,6 +417,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
       ? 'USD'
       : (isResolvedUsStock ? 'USD' : 'KRW')
   const showLevel2Panel = false
+  const [balanceCooldown, setBalanceCooldown] = useState(0)
   const [isMarketClosed, setIsMarketClosed] = useState(false)
   const chartPollMs = isMarketClosed
     ? 60000
@@ -1904,28 +1903,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
         const lastCandle = uniqueFormatted[uniqueFormatted.length - 1];
         setCurrentPrice(lastCandle.close);
         
-        if (chartInterval === '1d' && uniqueFormatted.length > 1) {
-          const prevCandle = uniqueFormatted[uniqueFormatted.length - 2]
-          setPreviousClosePrice(Number(prevCandle.close || 0) || null)
-        } else {
-          setPreviousClosePrice(null)
-        }
 
-        setHasAuthoritativeChangeRate(false)
-
-        if (resData.meta && typeof resData.meta.change_rate === 'number') {
-          setHasAuthoritativeChangeRate(true);
-          setPriceChangeRate(resData.meta.change_rate);
-        } else if (chartInterval === '1d' && uniqueFormatted.length > 1) {
-          const prevCandle = uniqueFormatted[uniqueFormatted.length - 2];
-          const referenceCurrentPrice = Number(resData.meta?.current_price ?? lastCandle.close ?? 0);
-          const previousClose = Number(prevCandle.close || 0);
-          const change = previousClose !== 0 ? ((referenceCurrentPrice - previousClose) / previousClose) * 100 : 0;
-          setHasAuthoritativeChangeRate(false);
-          setPriceChangeRate(change);
-        } else {
-          setPriceChangeRate(0);
-        }
         
         setPrice(prev => prev === '' ? lastCandle.close.toString() : prev);
       } else {
@@ -1953,6 +1931,27 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
       if (abortControllerRef.current === controller) {
         setLoadingChart(false)
       }
+    }
+  }
+
+  // 1-b. 경량 시세(전일대비) 독립 조회
+  const fetchQuote = async () => {
+    try {
+      const authHeader = await getAuthHeader()
+      const chartEx = exchange
+      const chartEnv = brokerEnv
+      const chartSymbol = resolvedSymbol || symbol
+      const url = `${API_BASE_URL}/api/chart/quote?exchange=${chartEx}&symbol=${encodeURIComponent(chartSymbol)}&broker_env=${chartEnv}`
+      const headers = {}
+      if (authHeader) headers['Authorization'] = authHeader
+      const res = await fetch(url, { headers })
+      if (!res.ok) return
+      const json = await res.json()
+      if (json.success && json.data && typeof json.data.change_rate === 'number') {
+        setPriceChangeRate(json.data.change_rate)
+      }
+    } catch (err) {
+      // quote fetch failure is non-critical
     }
   }
 
@@ -2042,6 +2041,20 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
     }
   }
 
+  useEffect(() => {
+    if (balanceCooldown <= 0) return
+    const timer = window.setInterval(() => {
+      setBalanceCooldown(prev => prev - 1)
+    }, 1000)
+    return () => window.clearInterval(timer)
+  }, [balanceCooldown])
+
+  const handleRefreshBalance = async () => {
+    if (balanceCooldown > 0) return
+    setBalanceCooldown(5) // 5초 쿨다운
+    await fetchUserBalance()
+  }
+
   const fetchOrderPrecheck = async () => {
     const authHeader = await getAuthHeader()
     if (!authHeader) {
@@ -2127,18 +2140,6 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
   }, [symbol, normalizedRouteAssetType])
 
   // 거래소 토글 시 환경값 변경
-  useEffect(() => {
-    if (hasAuthoritativeChangeRate) return
-    if (chartInterval !== '1d') {
-      setPriceChangeRate(0)
-      return
-    }
-    if (!previousClosePrice) return
-    if (!currentPrice) return
-
-    const change = ((Number(currentPrice) - Number(previousClosePrice)) / Number(previousClosePrice)) * 100
-    setPriceChangeRate(Number.isFinite(change) ? change : 0)
-  }, [currentPrice, previousClosePrice, chartInterval, hasAuthoritativeChangeRate])
 
   const handleExchangeChange = (newEx, newEnv = 'REAL') => {
     // 해외 주식인 경우 KIS 선택 차단
@@ -2180,6 +2181,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
     setNewsSyncMessage({ text: '', isError: false })
     fetchStockWarnings()
     fetchCandles()
+    fetchQuote()
     fetchUserBalance()
     loadTradeHoldingContext()
     loadOpenOrders()
@@ -2188,6 +2190,16 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
     fetchDisclosureList()
     fetchCommunityPosts()
   }, [exchange, symbol, resolvedSymbol, chartInterval, brokerEnv, symbolLookupReady, resolvedAssetType])
+
+  // 전일대비 독립 폴링 (30초)
+  useEffect(() => {
+    const quoteIntervalId = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        fetchQuote()
+      }
+    }, 30000)
+    return () => window.clearInterval(quoteIntervalId)
+  }, [exchange, symbol, resolvedSymbol, brokerEnv])
 
   useEffect(() => {
     loadFavoriteStatus()
@@ -4715,15 +4727,29 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
                   <span className="w-1.5 h-3 bg-cyan-400 rounded-full" />
                   <span className="text-xs font-bold text-white">내 보유 현황</span>
                 </div>
-                {(myHoldingAbsQty > 0 || dbEstimatedHolding?.estimatedQty > 0) && (
+                <div className="flex items-center gap-1.5">
                   <button
                     type="button"
-                    onClick={handleFillFullExitOrder}
-                    className="rounded border border-rose-500/30 px-2.5 py-1 text-[10px] font-black text-rose-300 transition hover:bg-rose-950/30"
+                    onClick={handleRefreshBalance}
+                    disabled={balanceCooldown > 0}
+                    className={`rounded border px-2 py-1 text-[10px] font-black transition ${
+                      balanceCooldown > 0
+                        ? 'text-slate-500 border-slate-800/40 bg-slate-900/20 cursor-not-allowed'
+                        : 'text-cyan-400 border-cyan-500/20 hover:bg-cyan-950/30 hover:border-cyan-500/40'
+                    }`}
                   >
-                    {exchange === 'BINANCE_UM_FUTURES' ? '전량 청산 입력' : '전량 매도 입력'}
+                    {balanceCooldown > 0 ? `대기 ${balanceCooldown}초` : '새로고침'}
                   </button>
-                )}
+                  {(myHoldingAbsQty > 0 || dbEstimatedHolding?.estimatedQty > 0) && (
+                    <button
+                      type="button"
+                      onClick={handleFillFullExitOrder}
+                      className="rounded border border-rose-500/30 px-2.5 py-1 text-[10px] font-black text-rose-300 transition hover:bg-rose-950/30"
+                    >
+                      {exchange === 'BINANCE_UM_FUTURES' ? '전량 청산 입력' : '전량 매도 입력'}
+                    </button>
+                  )}
+                </div>
               </div>
 
               {myHolding && myHoldingAbsQty > 0 ? (
