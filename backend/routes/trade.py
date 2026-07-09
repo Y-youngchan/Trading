@@ -1205,6 +1205,19 @@ def _extract_balance_snapshot(client, symbol: str) -> dict:
         }
 
     available_cash = balance.get("available_cash")
+    if client.__class__.__name__ == "TossClient":
+        market_country = determine_market_country(symbol)
+        if market_country == "US":
+            details = balance.get("available_cash_details") or {}
+            components = details.get("components") or []
+            usd_cash = None
+            for comp in components:
+                if comp.get("currency") == "USD":
+                    usd_cash = comp.get("cash_buying_power")
+                    break
+            if usd_cash is not None:
+                available_cash = usd_cash
+
     try:
         available_cash = float(available_cash) if available_cash is not None else None
     except (TypeError, ValueError):
@@ -1439,6 +1452,8 @@ def _build_precheck_payload(
 
     asset_type = "STOCK" if exchange in ("TOSS", "KIS") else "CRYPTO"
     currency = "KRW" if exchange in ("TOSS", "KIS", "COINONE") else "USD"
+    if exchange == "TOSS" and determine_market_country(symbol) == "US":
+        currency = "USD"
     warnings = []
     if is_market_closed:
         warnings.append(market_status_message)

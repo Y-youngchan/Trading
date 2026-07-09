@@ -2657,7 +2657,18 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
   const myHoldingAbsQty = Math.abs(myHoldingQty)
   const myHoldingEvalAmount = Number(myHolding?.eval_amount ?? (Number(myHolding?.current_price || 0) * myHoldingAbsQty))
   const myHoldingDirection = myHolding?.position_direction || (myHoldingQty < 0 ? 'SHORT' : 'LONG')
-  const baseAvailableCash = Number(userBalance?.available_cash ?? NaN)
+  const baseAvailableCash = (() => {
+    if (!userBalance) return NaN;
+    if (exchange === 'TOSS') {
+      const components = userBalance.available_cash_details?.components || [];
+      const targetCurrency = isResolvedUsStock ? 'USD' : 'KRW';
+      const found = components.find(c => String(c.currency).toUpperCase() === targetCurrency);
+      if (found && found.cash_buying_power != null) {
+        return Number(found.cash_buying_power);
+      }
+    }
+    return Number(userBalance.available_cash ?? NaN);
+  })();
   const overallFeedStatus = getOverallFeedStatus()
   const isTradingSuspended = resolvedAssetType === 'STOCK' && stockWarnings.some((warning) => String(warning.warning_type || '').toUpperCase() === 'TRADING_SUSPENDED')
   const tradeRestrictionMessage = isTradingSuspended
