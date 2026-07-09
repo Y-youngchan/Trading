@@ -11,7 +11,7 @@ describe('transfer balance adjustments', () => {
     const balance = {
       holdings: [
         {
-          symbol: 'DOGE',
+          symbol: 'XRP',
           qty: 50,
           avg_price: 110,
           current_price: 110,
@@ -21,7 +21,7 @@ describe('transfer balance adjustments', () => {
           raw_exchange: 'COINONE',
         },
         {
-          symbol: 'DOGE',
+          symbol: 'XRP',
           qty: 30,
           raw_exchange: 'BINANCE',
         },
@@ -31,7 +31,7 @@ describe('transfer balance adjustments', () => {
       {
         from_exchange: 'COINONE',
         to_exchange: 'BINANCE',
-        currency: 'DOGE',
+        currency: 'XRP',
         amount: 30,
         withdraw_fee: 20,
         status: 'COMPLETED',
@@ -42,7 +42,7 @@ describe('transfer balance adjustments', () => {
 
     assert.deepEqual(
       adjusted.holdings.map((holding) => `${holding.raw_exchange}:${holding.symbol}:${holding.qty}`),
-      ['BINANCE:DOGE:30'],
+      ['BINANCE:XRP:30'],
     )
   })
 
@@ -63,7 +63,7 @@ describe('transfer balance adjustments', () => {
       {
         holdings: [
           {
-            symbol: 'DOGE',
+            symbol: 'XRP',
             qty: 50,
             raw_exchange: 'COINONE',
           },
@@ -73,7 +73,7 @@ describe('transfer balance adjustments', () => {
         {
           from_exchange: 'COINONE 실거래',
           to_exchange: 'BINANCE 현물',
-          currency: 'DOGE',
+          currency: 'XRP',
           amount: 30,
           withdrawal_fee: 20,
           status: 'WITHDRAWAL_REQUESTED',
