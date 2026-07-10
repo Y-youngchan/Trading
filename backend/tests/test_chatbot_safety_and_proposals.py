@@ -297,7 +297,7 @@ def test_run_chatbot_tool_routes_recommendation_request_to_recommendation_servic
 
 def test_run_chatbot_tool_creates_proposal_from_last_recommendation_reference(monkeypatch):
     calls = []
-    tool_registry._last_recommendations_by_user.clear()
+    conversation_state = {}
 
     class FakeRecommendationService:
         def recommend(self, auth_header, message):
@@ -323,6 +323,17 @@ def test_run_chatbot_tool_creates_proposal_from_last_recommendation_reference(mo
             }
 
     def fake_query(auth_header, endpoint, method="GET", json_data=None, params=None):
+        if endpoint == "chatbot_conversation_states":
+            params = params or {}
+            user_id = str(params.get("user_id") or "").removeprefix("eq.")
+            if method == "GET":
+                return [dict(conversation_state)] if conversation_state else []
+            if method == "POST":
+                conversation_state.update(json_data or {})
+                return [dict(conversation_state)]
+            if method == "PATCH":
+                conversation_state.update(json_data or {})
+                return [dict(conversation_state)]
         calls.append({"endpoint": endpoint, "method": method, "json_data": json_data, "params": params})
         if endpoint == "trade_proposals":
             return [{"id": "proposal-from-recommendation", "status": "PENDING"}]
@@ -342,6 +353,10 @@ def test_run_chatbot_tool_creates_proposal_from_last_recommendation_reference(mo
     )
     monkeypatch.setattr(tool_registry, "_post_internal", lambda path, auth_header, body=None: {"success": True, "data": {}})
     monkeypatch.setattr(tool_registry, "query_supabase", fake_query)
+    monkeypatch.setattr(
+        "backend.services.chatbot.conversation_repository.query_supabase",
+        fake_query,
+    )
 
     run_chatbot_tool("Bearer test", "국내 주식 추천해줘")
     result = run_chatbot_tool("Bearer test", "1번으로 10만원어치 매수 제안 만들어줘")
@@ -353,8 +368,11 @@ def test_run_chatbot_tool_creates_proposal_from_last_recommendation_reference(mo
 
 
 def test_run_chatbot_tool_requires_recent_recommendation_for_number_reference(monkeypatch):
-    tool_registry._last_recommendations_by_user.clear()
     monkeypatch.setattr(tool_registry, "get_user_id_from_header", lambda auth_header: ("user-1", "test"))
+    monkeypatch.setattr(
+        "backend.services.chatbot.conversation_repository.query_supabase",
+        lambda *args, **kwargs: [],
+    )
 
     result = run_chatbot_tool("Bearer test", "1번으로 10만원어치 매수 제안 만들어줘")
 

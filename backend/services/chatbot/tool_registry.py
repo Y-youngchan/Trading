@@ -2,7 +2,7 @@ import json
 import math
 import os
 import re
-from datetime import UTC, datetime
+from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 from urllib.parse import urlencode
@@ -10,6 +10,7 @@ from urllib.parse import urlencode
 import requests
 
 from backend.services.auth_service import get_user_id_from_header
+from backend.services.chatbot.conversation_repository import ChatbotConversationRepository
 from backend.services.supabase_client import query_supabase, safe_query_supabase
 from backend.services.symbol_metadata import enrich_symbol
 from backend.services.chatbot.web_fallback_search_service import ChatbotWebFallbackSearchService
@@ -20,7 +21,7 @@ from backend.services.chatbot.recommendation_service import ChatbotRecommendatio
 
 API_BASE_URL = os.getenv("CHATBOT_INTERNAL_API_BASE_URL", "http://localhost:5050")
 OPEN_ORDER_STATUSES = ("PENDING", "APPROVED", "ORDERED", "OPEN", "PARTIALLY_FILLED", "MODIFIED")
-_last_recommendations_by_user: dict[str, dict] = {}
+_conversation_repository = ChatbotConversationRepository()
 
 SYMBOL_QUERY_ALIASES = {
     "삼전": "삼성전자",
@@ -814,18 +815,24 @@ def create_trade_proposal_from_message(auth_header: str, message: str, intent: P
 
 def _store_last_recommendations(auth_header: str, result: dict) -> None:
     data = result.get("data") or {}
-    items = data.get("items") or []
+    items = [
+        item
+        for item in (data.get("items") or [])
+        if isinstance(item, dict) and item.get("symbol")
+    ][:10]
     if not items:
         return
     try:
         user_id, _ = get_user_id_from_header(auth_header)
     except Exception:
         return
-    _last_recommendations_by_user[user_id] = {
-        "items": [item for item in items if isinstance(item, dict) and item.get("symbol")],
-        "stored_at": datetime.now(UTC).isoformat(),
-        "source": data.get("source"),
-    }
+    _conversation_repository.store_recommendations(
+        auth_header,
+        user_id,
+        items,
+        data.get("source"),
+        ttl_seconds=600,
+    )
 
 
 def _extract_recommendation_reference_index(text: str) -> int | None:
@@ -864,8 +871,10 @@ def _with_referenced_recommendation_symbol(auth_header: str, message: str) -> tu
         return None, None
 
     user_id, _ = get_user_id_from_header(auth_header)
-    recent = _last_recommendations_by_user.get(user_id) or {}
-    items = recent.get("items") or []
+    items = _conversation_repository.load_recommendations(
+        auth_header,
+        user_id,
+    )
     if not items:
         return None, {
             "reply": "추천 후보를 먼저 조회한 뒤, 예: '1번으로 10만원어치 매수 제안'처럼 말해 주세요.",
