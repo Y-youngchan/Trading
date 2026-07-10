@@ -40,6 +40,26 @@ def test_safety_guard_blocks_order_tool_before_execution():
         enforce_tool_safety("place_order", {})
 
 
+def test_holdings_summary_routes_to_amount_summary_before_detail(monkeypatch):
+    monkeypatch.setattr(
+        tool_registry,
+        "get_portfolio_summary",
+        lambda auth_header, message: {
+            "reply": "실거래 평가자산 합계: 1,000,000원",
+            "data": {"source": "PORTFOLIO_SUMMARY"},
+        },
+    )
+    monkeypatch.setattr(
+        tool_registry,
+        "get_holdings",
+        lambda *args: (_ for _ in ()).throw(AssertionError("상세 holdings 라우팅 금지")),
+    )
+
+    result = run_chatbot_tool("Bearer test", "내 보유자산 요약해줘")
+
+    assert result["data"]["source"] == "PORTFOLIO_SUMMARY"
+
+
 def test_llm_schema_does_not_expose_trade_proposal_creation():
     assert "create_trade_proposal" not in {schema["name"] for schema in FUNCTION_SCHEMAS}
 

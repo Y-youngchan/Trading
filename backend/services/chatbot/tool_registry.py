@@ -16,6 +16,11 @@ from backend.services.symbol_metadata import enrich_symbol
 from backend.services.chatbot.web_fallback_search_service import ChatbotWebFallbackSearchService
 from backend.services.chatbot.safety_guard import enforce_tool_safety
 from backend.services.chatbot.order_parser import ParsedOrderIntent, parse_order_intent
+from backend.services.chatbot.portfolio_summary_service import (
+    build_portfolio_totals,
+    format_portfolio_reply,
+    normalize_account_summary,
+)
 from backend.services.chatbot.recommendation_service import ChatbotRecommendationService
 
 
@@ -396,33 +401,20 @@ def get_portfolio_summary(auth_header: str, message: str) -> dict:
             try:
                 payload = _post_internal("/api/dashboard/balance", auth_header, {"exchange": exchange, "env": env})
                 balance = payload.get("data") or {}
-                summaries.append({
-                    "exchange": exchange,
-                    "env": env,
-                    "total_evaluation": _to_float(balance.get("total_evaluation") or balance.get("total_asset") or balance.get("total_balance")),
-                    "available_cash": _to_float(balance.get("available_cash") or balance.get("cash") or balance.get("krw_balance")),
-                    "exchange_rate": balance.get("exchange_rate"),
-                    "holdings": balance.get("holdings") or [],
-                })
-            except Exception as exc:
-                errors.append(f"{exchange} {env}: {str(exc)[:80]}")
+                summaries.append(normalize_account_summary(exchange, env, balance))
+            except Exception:
+                errors.append(f"{exchange} {env} 계좌 조회 실패")
 
-    total_eval = sum(item["total_evaluation"] for item in summaries)
-    total_cash = sum(item["available_cash"] for item in summaries)
-    lines = [
-        f"평가 자산 합계: {_format_money(total_eval)}",
-        f"추정 현금/주문가능금액 합계: {_format_money(total_cash)}",
-    ]
-    for item in summaries:
-        lines.append(
-            f"- {item['exchange']} {item['env']}: 평가 {_format_money(item['total_evaluation'])}, 현금 {_format_money(item['available_cash'])}"
-        )
-    if errors and not summaries:
-        lines.append("조회 가능한 계좌가 없습니다. 설정의 API 키와 거래소 계정 상태를 확인해 주세요.")
+    totals_by_env = build_portfolio_totals(summaries)
 
     return {
-        "reply": "\n".join(lines),
-        "data": {"summaries": summaries, "errors": errors[:5]},
+        "reply": format_portfolio_reply(totals_by_env, summaries, errors),
+        "data": {
+            "summaries": summaries,
+            "totals_by_env": totals_by_env,
+            "errors": errors[:5],
+            "source": "PORTFOLIO_SUMMARY",
+        },
     }
 
 
@@ -1459,6 +1451,12 @@ def run_chatbot_tool(auth_header: str | None, message: str) -> dict | None:
         return guarded("get_asset_outlook", get_recommendation_candidates)
     if _is_asset_outlook_request(text):
         return guarded("get_asset_outlook", get_asset_outlook)
+    is_portfolio_summary_request = (
+        "요약" in text
+        and any(keyword in text for keyword in ["보유", "자산", "포트폴리오", "계좌"])
+    )
+    if is_portfolio_summary_request:
+        return guarded("get_portfolio_summary", get_portfolio_summary)
     if not is_strategy_request and any(keyword in text for keyword in ["보유", "내 주식", "뭐뭐 있어", "들고"]):
         return guarded("get_holdings", get_holdings)
     if (not is_strategy_request or is_direct_read_request) and any(keyword in text for keyword in ["평가 자산", "평가자산", "내 돈", "얼마 있어", "자산 얼마"]):
