@@ -412,6 +412,7 @@ class ChatbotService:
         auth_header: str | None = None,
         user_timezone: str | None = None,
         trace_callback: TraceCallback | None = None,
+        delta_callback: Callable[[str], None] | None = None,
     ) -> dict:
         text = str(message or "").strip()
         if not text:
@@ -467,14 +468,27 @@ class ChatbotService:
         self._emit_trace(trace_callback, "history", "대화 이력 확인")
         history = self._load_recent_history(auth_header, user_id)
         self._emit_trace(trace_callback, "llm", "LLM 답변 준비")
-        result = self.llm_client.generate_reply(
-            system_prompt=self._build_prompt_for_user(auth_header, user_id, text, user_timezone, trace_callback),
-            user_message=text,
-            user_id=user_id,
-            auth_header=auth_header,
-            function_schemas=FUNCTION_SCHEMAS,
-            history=history,
-        )
+        llm_arguments = {
+            "system_prompt": self._build_prompt_for_user(
+                auth_header,
+                user_id,
+                text,
+                user_timezone,
+                trace_callback,
+            ),
+            "user_message": text,
+            "user_id": user_id,
+            "auth_header": auth_header,
+            "function_schemas": FUNCTION_SCHEMAS,
+            "history": history,
+        }
+        if delta_callback:
+            result = self.llm_client.stream_reply(
+                **llm_arguments,
+                on_delta=delta_callback,
+            )
+        else:
+            result = self.llm_client.generate_reply(**llm_arguments)
 
         for tool_call in result.get("tool_calls") or []:
             self._emit_trace(trace_callback, "openai_tool_call", "OpenAI 도구 호출")

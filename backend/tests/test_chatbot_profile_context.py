@@ -7,10 +7,35 @@ class FakeLLMClient:
         self.system_prompt = None
         self.history = None
         self.reply = "테스트 응답"
+        self.generate_calls = 0
+        self.stream_calls = 0
 
     def generate_reply(self, system_prompt, user_message, user_id=None, auth_header=None, function_schemas=None, history=None):
+        self.generate_calls += 1
         self.system_prompt = system_prompt
         self.history = history
+        return {
+            "reply": self.reply,
+            "model": "fake",
+            "usage": {},
+            "tool_calls": [],
+        }
+
+    def stream_reply(
+        self,
+        system_prompt,
+        user_message,
+        user_id=None,
+        auth_header=None,
+        function_schemas=None,
+        history=None,
+        on_delta=None,
+    ):
+        self.stream_calls += 1
+        self.system_prompt = system_prompt
+        self.history = history
+        on_delta("테스트 ")
+        on_delta("응답")
         return {
             "reply": self.reply,
             "model": "fake",
@@ -111,6 +136,35 @@ def test_reply_loads_and_persists_authenticated_chat_history(monkeypatch):
         {"role": "user", "content": "새 질문"},
         {"role": "assistant", "content": "테스트 응답"},
     ]
+
+
+def test_reply_uses_llm_stream_when_delta_callback_is_provided(monkeypatch):
+    boundary = FakeConversationSupabaseBoundary()
+    monkeypatch.setattr(
+        "backend.services.chatbot.conversation_repository.query_supabase",
+        boundary.query,
+    )
+    monkeypatch.setattr(
+        "backend.services.chatbot.chat_service.run_chatbot_tool",
+        lambda auth_header, text: None,
+    )
+    service = ChatbotService()
+    fake_llm = FakeLLMClient()
+    service.llm_client = fake_llm
+    service.rag_service = FakeRAGService()
+    deltas = []
+
+    result = service.reply(
+        "새 질문",
+        user_id="user-1",
+        auth_header="Bearer test",
+        delta_callback=deltas.append,
+    )
+
+    assert result["reply"] == "테스트 응답"
+    assert deltas == ["테스트 ", "응답"]
+    assert fake_llm.stream_calls == 1
+    assert fake_llm.generate_calls == 0
 
 
 def test_anonymous_reply_does_not_read_or_write_shared_history(monkeypatch):
