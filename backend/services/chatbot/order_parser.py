@@ -87,6 +87,13 @@ COMMAND_WORDS = (
     "반만",
 )
 
+KRW_UNIT_MULTIPLIERS = {
+    "원": 1.0,
+    "천원": 1000.0,
+    "만원": 10000.0,
+    "만": 10000.0,
+}
+
 
 def parse_order_intent(message: str) -> ParsedOrderIntent:
     text = str(message or "").strip()
@@ -158,31 +165,35 @@ def _extract_quantity(text: str) -> float | None:
 
 
 def _extract_amount_krw(text: str) -> float | None:
-    match = re.search(r"(\d+(?:\.\d+)?)\s*(만원|천원|원|만)(?!\s*에)\s*(?:어치)?", text)
+    match = re.search(
+        r"(\d+(?:\.\d+)?)\s*(만원|천원|원|만)(?!원?\s*에)\s*(?:어치)?",
+        text,
+    )
     if match:
-        amount = _to_float(match.group(1))
-        unit = match.group(2)
-        if unit in {"만원", "만"}:
-            return amount * 10000
-        if unit == "천원":
-            return amount * 1000
-        return amount
+        return _parse_krw_value(match.group(1), match.group(2))
 
     korean_match = re.search(
-        r"([일한이삼사오육칠팔구십백천만]+)\s*(원|만원|천원|만)(?!\s*에)\s*(?:어치)?",
+        r"([일한이삼사오육칠팔구십백천만]+)\s*(만원|천원|원|만)"
+        r"(?!원?\s*에)\s*(?:어치)?",
         text,
     )
     if korean_match:
-        parsed = _parse_korean_amount(korean_match.group(1))
-        return parsed if parsed > 0 else None
+        return _parse_krw_value(korean_match.group(1), korean_match.group(2))
     return None
 
 
 def _extract_price(text: str) -> float | None:
-    match = re.search(r"(\d+(?:\.\d+)?)\s*원\s*에", text)
-    if not match:
-        return None
-    return _to_float(match.group(1))
+    match = re.search(r"(\d+(?:\.\d+)?)\s*(만원|천원|원|만)\s*에", text)
+    if match:
+        return _parse_krw_value(match.group(1), match.group(2))
+
+    korean_match = re.search(
+        r"([일한이삼사오육칠팔구십백천만]+)\s*(만원|천원|원|만)\s*에",
+        text,
+    )
+    if korean_match:
+        return _parse_krw_value(korean_match.group(1), korean_match.group(2))
+    return None
 
 
 def _extract_sell_ratio(text: str) -> float | None:
@@ -229,6 +240,15 @@ def _parse_korean_amount(value: str) -> float:
         left, right = normalized.split("만", 1)
         return float((parse_section(left) or 1) * 10000 + parse_section(right))
     return float(parse_section(normalized))
+
+
+def _parse_krw_value(value: str, unit: str) -> float | None:
+    if re.fullmatch(r"\d+(?:\.\d+)?", str(value)):
+        parsed = _to_float(value)
+    else:
+        parsed = _parse_korean_amount(value)
+    amount = parsed * KRW_UNIT_MULTIPLIERS.get(unit, 0)
+    return amount if amount > 0 else None
 
 
 def _to_float(value: str) -> float:
