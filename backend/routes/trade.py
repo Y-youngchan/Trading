@@ -421,12 +421,19 @@ def _load_user_exchange_record(auth_header: str, user_id: str, exchange: str, br
     }
     records = query_supabase(auth_header, "user_api_keys", "GET", params=params)
     if not records:
-        raise ValueError(f"등록된 {credential_exchange} ({broker_env}) API 크리덴셜 정보가 없습니다.")
+        raise ValueError(f"등록된 {credential_exchange} ({broker_env}) API 키 정보가 없습니다.")
 
     record = records[0]
     access_key = crypto_helper.decrypt(record.get("encrypted_access_key"))
     secret_key = crypto_helper.decrypt(record.get("encrypted_secret_key"))
     return record, access_key, secret_key
+
+
+def _format_user_value_error_message(error: ValueError) -> str:
+    """
+    내부 구현 용어가 사용자 화면에 노출되지 않도록 ValueError 메시지를 정규화합니다.
+    """
+    return str(error).replace("API 크리덴셜 정보", "API 키 정보").replace("API 크리덴셜", "API 키")
 
 
 def _query_user_exchange_records(auth_header: str, user_id: str, exchange: str, broker_env: str | None = None) -> list[dict]:
@@ -2058,7 +2065,7 @@ def precheck_manual_order():
         )
         return jsonify({"success": True, "data": payload})
     except ValueError as e:
-        return jsonify({"success": False, "message": str(e)}), 400
+        return jsonify({"success": False, "message": _format_user_value_error_message(e)}), 400
     except Exception as e:
         return jsonify(format_error_payload(e, "주문 사전검증 실패", exchange=exchange)), 500
 
@@ -2165,7 +2172,7 @@ def place_manual_order():
     try:
         record, access_key, secret_key = _load_user_exchange_record(auth_header, user_id, exchange, broker_env)
     except ValueError as e:
-        return jsonify({"success": False, "message": str(e)}), 400
+        return jsonify({"success": False, "message": _format_user_value_error_message(e)}), 400
     except Exception as e:
         return jsonify(format_error_payload(e, "API 크리덴셜 로드 및 복호화 실패", exchange=exchange)), 500
 
@@ -2190,7 +2197,7 @@ def place_manual_order():
             } if exchange == "BINANCE_UM_FUTURES" else None,
         )
     except ValueError as e:
-        return jsonify({"success": False, "message": str(e)}), 400
+        return jsonify({"success": False, "message": _format_user_value_error_message(e)}), 400
     except Exception as e:
         return jsonify(format_error_payload(e, "주문 사전검증 실패", exchange=exchange)), 500
 

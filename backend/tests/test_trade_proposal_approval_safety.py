@@ -489,6 +489,43 @@ def test_manual_order_requires_idempotency_key_before_exchange_order(monkeypatch
     assert order_client.place_order_calls == 0
 
 
+def test_manual_order_missing_api_key_returns_user_friendly_message_before_precheck(monkeypatch):
+    order_client = FakeOrderClient()
+    monkeypatch.setattr(trade, "get_user_id_from_header", lambda auth_header: ("user-1", "token"))
+    monkeypatch.setattr(
+        trade,
+        "_load_user_exchange_record",
+        lambda *args: (_ for _ in ()).throw(
+            ValueError("등록된 COINONE (REAL) API 크리덴셜 정보가 없습니다.")
+        ),
+    )
+    monkeypatch.setattr(
+        trade,
+        "_build_precheck_payload",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("API 키 없음은 사전검증 전에 차단되어야 합니다.")),
+    )
+    monkeypatch.setattr(trade, "_build_exchange_client", lambda *args: order_client)
+
+    response = app.test_client().post(
+        "/api/trade/order",
+        headers={"Authorization": "Bearer test"},
+        json={
+            "exchange": "COINONE",
+            "symbol": "XRP",
+            "action": "BUY",
+            "order_type": "LIMIT",
+            "price": 800,
+            "quantity": 10,
+            "broker_env": "REAL",
+            "idempotency_key": MANUAL_ORDER_KEY,
+        },
+    )
+
+    assert response.status_code == 400
+    assert "API 키" in response.get_json()["message"]
+    assert order_client.place_order_calls == 0
+
+
 def test_same_manual_order_idempotency_key_is_sent_to_exchange_only_once(monkeypatch):
     order_client = FakeOrderClient()
     claims = iter([
