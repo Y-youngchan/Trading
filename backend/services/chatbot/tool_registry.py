@@ -23,6 +23,7 @@ from backend.services.chatbot.portfolio_summary_service import (
     normalize_account_summary,
 )
 from backend.services.chatbot.recommendation_service import ChatbotRecommendationService
+from backend.services.chatbot.asset_ml_outlook import build_single_asset_ml_outlook
 
 
 API_BASE_URL = os.getenv("CHATBOT_INTERNAL_API_BASE_URL", "http://localhost:5050")
@@ -2138,6 +2139,10 @@ def get_asset_outlook(auth_header: str, message: str) -> dict:
     asset_type = str(symbol_data.get("asset_type") or "").upper()
     market = str(symbol_data.get("market") or "").strip()
     lookup_label = f"{display_name}({symbol})" if display_name and display_name.upper() != symbol else symbol
+    ml_result = build_single_asset_ml_outlook(auth_header, message, symbol_data)
+    if ml_result:
+        return ml_result
+
     context_parts = [lookup_label, "최근 뉴스 공시 시세 전망 리스크"]
     if asset_type:
         context_parts.append(asset_type)
