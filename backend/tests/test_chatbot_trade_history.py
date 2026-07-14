@@ -1,4 +1,5 @@
 from backend.services.chatbot import tool_registry
+from backend.services.chatbot import asset_ml_outlook
 
 
 def test_search_trade_history_displays_crypto_name_instead_of_symbol(monkeypatch):
@@ -70,6 +71,15 @@ def test_run_chatbot_tool_asks_symbol_for_bare_disclosure_query():
     assert result["data"]["source"] == "CATEGORY_CLARIFICATION"
     assert result["data"]["reason"] == "missing_disclosure_symbol"
     assert "어떤 종목" in result["reply"]
+
+
+def test_run_chatbot_tool_asks_symbol_for_recent_disclosure_lookup():
+    result = tool_registry.run_chatbot_tool("Bearer test", "최근 공시 조회")
+
+    assert result["data"]["source"] == "CATEGORY_CLARIFICATION"
+    assert result["data"]["reason"] == "missing_disclosure_symbol"
+    assert "어떤 종목" in result["reply"]
+    assert "삼성전자 공시" in result["reply"]
 
 
 def test_run_chatbot_tool_asks_news_target_for_bare_news_query():
@@ -355,6 +365,80 @@ def test_recommendation_candidates_adds_next_action_when_predictions_are_missing
     assert "대신" in result["reply"]
     assert "상승률" in result["reply"]
     assert "관심종목" in result["reply"]
+
+
+def test_asset_outlook_uses_ml_signal_for_predictive_question(monkeypatch):
+    monkeypatch.setattr(
+        tool_registry,
+        "_resolve_symbol",
+        lambda auth_header, query: {
+            "symbol": "005930",
+            "display_name": "삼성전자",
+            "asset_type": "STOCK",
+            "market": "KR",
+        },
+    )
+    monkeypatch.setattr(
+        asset_ml_outlook,
+        "build_active_signal_payload",
+        lambda **kwargs: {
+            "model_version": "lgbm_kr_stock_signal_v1",
+            "performance": {"roc_auc": 0.61},
+            "predictions": [
+                {
+                    "symbol": "005930",
+                    "display_name": "삼성전자",
+                    "position": "LONG",
+                    "signal_grade": "STRONG_BUY_CANDIDATE",
+                    "up_probability": 0.63,
+                    "risk_probability": 0.31,
+                    "signal_score": 14.2,
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        tool_registry.ChatbotWebFallbackSearchService,
+        "search",
+        lambda self, **kwargs: (_ for _ in ()).throw(AssertionError("예측형 질문은 뉴스 검색보다 ML 신호를 먼저 사용해야 합니다.")),
+    )
+
+    result = tool_registry.get_asset_outlook("Bearer test", "삼성전자 오를까?")
+
+    assert result["data"]["source"] == "ML_ACTIVE_SIGNAL"
+    assert result["data"]["mode"] == "single_asset_outlook"
+    assert result["data"]["asset_key"] == "kr_stock"
+    assert result["data"]["symbol"] == "005930"
+    assert result["data"]["model_version"] == "lgbm_kr_stock_signal_v1"
+    assert "상승 확률: 63.0%" in result["reply"]
+    assert "모델 기반 참고 신호" in result["reply"]
+
+
+def test_asset_outlook_explains_missing_ml_prediction_without_news_fallback(monkeypatch):
+    monkeypatch.setattr(
+        tool_registry,
+        "_resolve_symbol",
+        lambda auth_header, query: {
+            "symbol": "005930",
+            "display_name": "삼성전자",
+            "asset_type": "STOCK",
+            "market": "KR",
+        },
+    )
+    monkeypatch.setattr(asset_ml_outlook, "build_active_signal_payload", lambda **kwargs: None)
+    monkeypatch.setattr(
+        tool_registry.ChatbotWebFallbackSearchService,
+        "search",
+        lambda self, **kwargs: (_ for _ in ()).throw(AssertionError("ML 예측 파일이 없을 때 뉴스로 대체하면 안 됩니다.")),
+    )
+
+    result = tool_registry.get_asset_outlook("Bearer test", "삼성전자 오를까?")
+
+    assert result["data"]["source"] == "ML_ACTIVE_SIGNAL"
+    assert result["data"]["reason"] == "missing_active_predictions"
+    assert result["data"]["asset_key"] == "kr_stock"
+    assert "활성 ML 예측 결과를 아직 찾지 못했습니다" in result["reply"]
+    assert "배포 환경" in result["reply"]
 
 
 def test_extract_symbol_query_uses_ml_training_universe_symbols():

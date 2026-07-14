@@ -20,6 +20,7 @@ import {
 } from './chatbotTimeline'
 import { buildChatbotTraceBadges } from './chatbotTrace'
 import { buildTradeHistoryPresentation } from './chatbotTradeHistoryPresentation'
+import { buildWatchlistPresentation } from './chatbotWatchlistPresentation'
 
 const INITIAL_MESSAGES = [
   {
@@ -163,13 +164,15 @@ function ChatMessage({ message, onAction }) {
   const newsPresentation = buildNewsPresentation(message.toolResult)
   const mlRecommendationPresentation = buildMlRecommendationPresentation(message.toolResult)
   const tradeHistoryPresentation = buildTradeHistoryPresentation(message.toolResult)
+  const watchlistPresentation = buildWatchlistPresentation(message.toolResult)
   const hasDisclosureCards = !isUser && disclosurePresentation.items.length > 0
   const hasNewsCards = !isUser && newsPresentation.items.length > 0
   const hasMlRecommendationCards = !isUser && mlRecommendationPresentation.shouldRender
   const hasTradeHistoryTable = !isUser && tradeHistoryPresentation.shouldRender
+  const hasWatchlistTable = !isUser && watchlistPresentation.shouldRender
   const citations = !isUser ? buildChatbotCitations(message.toolResult) : []
   const traceBadges = !isUser ? buildChatbotTraceBadges({ traceSteps: message.traceSteps, toolResult: message.toolResult }) : []
-  const hasMessageBody = hasDisclosureCards || hasNewsCards || hasMlRecommendationCards || hasTradeHistoryTable || Boolean(message.text) || !message.isStreaming
+  const hasMessageBody = hasDisclosureCards || hasNewsCards || hasMlRecommendationCards || hasTradeHistoryTable || hasWatchlistTable || Boolean(message.text) || !message.isStreaming
 
   if (!hasMessageBody && traceBadges.length === 0) {
     return null
@@ -177,13 +180,13 @@ function ChatMessage({ message, onAction }) {
 
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-      <div className={`flex flex-col gap-1 ${hasDisclosureCards || hasNewsCards || hasMlRecommendationCards || hasTradeHistoryTable ? 'w-full max-w-[96%]' : 'max-w-[84%]'} ${isUser ? 'items-end' : 'items-start'}`}>
+      <div className={`flex flex-col gap-1 ${hasDisclosureCards || hasNewsCards || hasMlRecommendationCards || hasTradeHistoryTable || hasWatchlistTable ? 'w-full max-w-[96%]' : 'max-w-[84%]'} ${isUser ? 'items-end' : 'items-start'}`}>
         {!isUser && traceBadges.length > 0 && (
           <TraceBadges badges={traceBadges} />
         )}
         {hasMessageBody && (
           <div
-            className={`${hasDisclosureCards || hasNewsCards || hasMlRecommendationCards || hasTradeHistoryTable ? 'w-full' : 'whitespace-pre-wrap break-words'} rounded-lg px-3 py-2 text-xs leading-5 ${
+            className={`${hasDisclosureCards || hasNewsCards || hasMlRecommendationCards || hasTradeHistoryTable || hasWatchlistTable ? 'w-full' : 'whitespace-pre-wrap break-words'} rounded-lg px-3 py-2 text-xs leading-5 ${
               isUser
                 ? 'bg-blue-600 text-[#ffffff]'
                 : 'border border-slate-700/80 bg-[#111827] text-slate-100'
@@ -191,10 +194,17 @@ function ChatMessage({ message, onAction }) {
           >
             {hasMlRecommendationCards && !message.isStreaming ? (
               <MlRecommendationResults presentation={mlRecommendationPresentation} />
+            ) : hasNewsCards && hasDisclosureCards && !message.isStreaming ? (
+              <div className="space-y-3">
+                <NewsResults presentation={newsPresentation} />
+                <DisclosureResults presentation={disclosurePresentation} />
+              </div>
             ) : hasNewsCards && !message.isStreaming ? (
               <NewsResults presentation={newsPresentation} />
             ) : hasTradeHistoryTable && !message.isStreaming ? (
               <TradeHistoryResults presentation={tradeHistoryPresentation} />
+            ) : hasWatchlistTable && !message.isStreaming ? (
+              <WatchlistResults presentation={watchlistPresentation} />
             ) : hasDisclosureCards && !message.isStreaming ? (
               <DisclosureResults presentation={disclosurePresentation} />
             ) : message.text}
@@ -226,6 +236,42 @@ function ChatMessage({ message, onAction }) {
         {!isUser && citations.length > 0 && (
           <CitationList citations={citations} />
         )}
+      </div>
+    </div>
+  )
+}
+
+function WatchlistResults({ presentation }) {
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-2 border-b border-slate-700/70 pb-2">
+        <p className="font-bold text-cyan-200">{presentation.title || '관심종목'}</p>
+        <span className="shrink-0 rounded border border-cyan-500/30 bg-cyan-950/30 px-2 py-0.5 text-[10px] font-bold text-cyan-100">
+          {presentation.count}건
+        </span>
+      </div>
+
+      <div className="overflow-x-auto rounded border border-slate-700/80">
+        <table className="w-full min-w-[520px] border-collapse text-left text-[11px]">
+          <thead className="bg-slate-900/80 text-[10px] uppercase tracking-[0.08em] text-slate-400">
+            <tr>
+              <th className="whitespace-nowrap px-2.5 py-2 font-bold">종목명</th>
+              <th className="whitespace-nowrap px-2.5 py-2 font-bold">종목코드</th>
+              <th className="whitespace-nowrap px-2.5 py-2 font-bold">분류</th>
+              <th className="whitespace-nowrap px-2.5 py-2 font-bold">거래소</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-800/80">
+            {presentation.items.map((item) => (
+              <tr key={`${item.exchange}-${item.assetType}-${item.symbol}`} className="bg-slate-950/20">
+                <td className="whitespace-nowrap px-2.5 py-2 font-bold text-slate-100">{item.name}</td>
+                <td className="whitespace-nowrap px-2.5 py-2 font-mono text-cyan-100">{item.symbol}</td>
+                <td className="whitespace-nowrap px-2.5 py-2 text-slate-200">{item.assetType}</td>
+                <td className="whitespace-nowrap px-2.5 py-2 font-mono text-slate-300">{item.exchange}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   )
