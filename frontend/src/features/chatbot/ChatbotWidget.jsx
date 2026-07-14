@@ -19,21 +19,26 @@ import {
   formatChatbotProposalNumber,
 } from './chatbotTimeline'
 import { buildChatbotTraceBadges } from './chatbotTrace'
+import { buildTradeHistoryPresentation } from './chatbotTradeHistoryPresentation'
 
 const INITIAL_MESSAGES = [
   {
     id: 'welcome',
     role: 'assistant',
-    text: '안녕하세요. AE 트레이딩 챗봇입니다. \n시세, 보유자산, 매매 제안 흐름을 도와드릴게요.',
+    text: '안녕하세요. 고객님!\n\n궁금하신 내용을 직접 입력해 주세요.',
     createdAt: new Date().toISOString(),
     timelineOrder: 0,
   },
 ]
 
 const QUICK_MESSAGES = [
-  '내 보유자산 요약해줘',
-  '시세 확인은 어떻게 해?',
-  '매매 제안 만들어줘',
+  '자산 요약',
+  '시세 확인',
+  '매매 제안',
+  '뉴스 분석',
+  '공시 조회',
+  '투자 리스크',
+  '이용 가이드',
 ]
 
 function getUserTimeZone() {
@@ -44,7 +49,32 @@ function formatMessageTime(createdAt) {
   if (!createdAt) return ''
 
   try {
+    const formatted = new Intl.DateTimeFormat('ko-KR', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+      timeZone: getUserTimeZone(),
+    }).formatToParts(new Date(createdAt))
+    const dayPeriod = formatted.find((part) => part.type === 'dayPeriod')?.value || ''
+    const hour = formatted.find((part) => part.type === 'hour')?.value || ''
+    const minute = formatted.find((part) => part.type === 'minute')?.value || ''
+    return [dayPeriod, hour && minute ? `${hour}:${minute}` : ''].filter(Boolean).join(' ')
+  } catch {
+    try {
+      return new Date(createdAt).toTimeString().slice(0, 5)
+    } catch {
+      return ''
+    }
+  }
+}
+
+function formatMessageDateTime(createdAt) {
+  if (!createdAt) return ''
+
+  try {
     return new Intl.DateTimeFormat('ko-KR', {
+      month: '2-digit',
+      day: '2-digit',
       hour: 'numeric',
       minute: '2-digit',
       hour12: true,
@@ -137,16 +167,19 @@ function TradeProposalCard({ proposal, proposalActionId, onApprove, onReject }) 
 function ChatMessage({ message, onAction }) {
   const isUser = message.role === 'user'
   const messageTime = formatMessageTime(message.createdAt)
+  const messageDateTime = formatMessageDateTime(message.createdAt)
   const actions = Array.isArray(message.actions) ? message.actions : []
   const disclosurePresentation = buildDisclosurePresentation(message.toolResult)
   const newsPresentation = buildNewsPresentation(message.toolResult)
   const mlRecommendationPresentation = buildMlRecommendationPresentation(message.toolResult)
+  const tradeHistoryPresentation = buildTradeHistoryPresentation(message.toolResult)
   const hasDisclosureCards = !isUser && disclosurePresentation.items.length > 0
   const hasNewsCards = !isUser && newsPresentation.items.length > 0
   const hasMlRecommendationCards = !isUser && mlRecommendationPresentation.shouldRender
+  const hasTradeHistoryTable = !isUser && tradeHistoryPresentation.shouldRender
   const citations = !isUser ? buildChatbotCitations(message.toolResult) : []
   const traceBadges = !isUser ? buildChatbotTraceBadges({ traceSteps: message.traceSteps, toolResult: message.toolResult }) : []
-  const hasMessageBody = hasDisclosureCards || hasNewsCards || hasMlRecommendationCards || Boolean(message.text) || !message.isStreaming
+  const hasMessageBody = hasDisclosureCards || hasNewsCards || hasMlRecommendationCards || hasTradeHistoryTable || Boolean(message.text) || !message.isStreaming
 
   if (!hasMessageBody && traceBadges.length === 0) {
     return null
@@ -154,13 +187,13 @@ function ChatMessage({ message, onAction }) {
 
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-      <div className={`flex flex-col gap-1 ${hasDisclosureCards || hasNewsCards || hasMlRecommendationCards ? 'w-full max-w-[96%]' : 'max-w-[84%]'} ${isUser ? 'items-end' : 'items-start'}`}>
+      <div className={`flex flex-col gap-1 ${hasDisclosureCards || hasNewsCards || hasMlRecommendationCards || hasTradeHistoryTable ? 'w-full max-w-[96%]' : 'max-w-[84%]'} ${isUser ? 'items-end' : 'items-start'}`}>
         {!isUser && traceBadges.length > 0 && (
           <TraceBadges badges={traceBadges} />
         )}
         {hasMessageBody && (
           <div
-            className={`${hasDisclosureCards || hasNewsCards || hasMlRecommendationCards ? 'w-full' : 'whitespace-pre-wrap break-words'} rounded-lg px-3 py-2 text-xs leading-5 ${
+            className={`${hasDisclosureCards || hasNewsCards || hasMlRecommendationCards || hasTradeHistoryTable ? 'w-full' : 'whitespace-pre-wrap break-words'} rounded-lg px-3 py-2 text-xs leading-5 ${
               isUser
                 ? 'bg-blue-600 text-[#ffffff]'
                 : 'border border-slate-700/80 bg-[#111827] text-slate-100'
@@ -170,13 +203,19 @@ function ChatMessage({ message, onAction }) {
               <MlRecommendationResults presentation={mlRecommendationPresentation} />
             ) : hasNewsCards && !message.isStreaming ? (
               <NewsResults presentation={newsPresentation} />
+            ) : hasTradeHistoryTable && !message.isStreaming ? (
+              <TradeHistoryResults presentation={tradeHistoryPresentation} />
             ) : hasDisclosureCards && !message.isStreaming ? (
               <DisclosureResults presentation={disclosurePresentation} />
             ) : message.text}
           </div>
         )}
         {hasMessageBody && messageTime && (
-          <time className="px-1 text-[10px] font-medium text-slate-500" dateTime={message.createdAt}>
+          <time
+            className="max-w-full shrink-0 whitespace-nowrap px-1 text-[10px] font-medium leading-4 text-slate-500"
+            dateTime={message.createdAt}
+            title={messageDateTime || undefined}
+          >
             {messageTime}
           </time>
         )}
@@ -197,6 +236,55 @@ function ChatMessage({ message, onAction }) {
         {!isUser && citations.length > 0 && (
           <CitationList citations={citations} />
         )}
+      </div>
+    </div>
+  )
+}
+
+function TradeHistoryResults({ presentation }) {
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-2 border-b border-slate-700/70 pb-2">
+        <p className="font-bold text-cyan-200">{presentation.title || '거래내역'}</p>
+        <span className="shrink-0 rounded border border-cyan-500/30 bg-cyan-950/30 px-2 py-0.5 text-[10px] font-bold text-cyan-100">
+          {presentation.count}건
+        </span>
+      </div>
+
+      <div className="overflow-x-auto rounded border border-slate-700/80">
+        <table className="w-full min-w-[760px] border-collapse text-left text-[11px]">
+          <thead className="bg-slate-950/70 text-[10px] uppercase tracking-[0.08em] text-slate-400">
+            <tr>
+              <th className="whitespace-nowrap px-2.5 py-2 font-bold">일시</th>
+              <th className="whitespace-nowrap px-2.5 py-2 font-bold">거래소</th>
+              <th className="px-2.5 py-2 font-bold">종목</th>
+              <th className="whitespace-nowrap px-2.5 py-2 font-bold">구분</th>
+              <th className="whitespace-nowrap px-2.5 py-2 text-right font-bold">체결가</th>
+              <th className="whitespace-nowrap px-2.5 py-2 text-right font-bold">수량</th>
+              <th className="whitespace-nowrap px-2.5 py-2 text-right font-bold">정산금액</th>
+              <th className="whitespace-nowrap px-2.5 py-2 font-bold">상태</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-800/90">
+            {presentation.items.map((item, index) => (
+              <tr key={`${item.date}-${item.exchange}-${item.assetName}-${index}`} className="bg-slate-950/25">
+                <td className="whitespace-nowrap px-2.5 py-2 font-mono text-slate-300">
+                  {item.date.replaceAll('-', '.')} {item.time}
+                </td>
+                <td className="whitespace-nowrap px-2.5 py-2 font-mono text-slate-200">{item.exchange}</td>
+                <td className="min-w-0 px-2.5 py-2 font-bold text-slate-100">
+                  <span className="block max-w-40 truncate" title={item.assetName}>{item.assetName}</span>
+                  <span className="mt-0.5 block font-mono text-[10px] font-medium text-slate-500">{item.symbol}</span>
+                </td>
+                <td className="whitespace-nowrap px-2.5 py-2 text-slate-200">{item.side}</td>
+                <td className="whitespace-nowrap px-2.5 py-2 text-right font-mono font-bold text-slate-100">{item.priceText}</td>
+                <td className="whitespace-nowrap px-2.5 py-2 text-right font-mono font-bold text-slate-100">{item.quantityText}</td>
+                <td className="whitespace-nowrap px-2.5 py-2 text-right font-mono font-bold text-cyan-100">{item.amountText}</td>
+                <td className="whitespace-nowrap px-2.5 py-2 text-slate-200">{item.status}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   )
@@ -445,13 +533,328 @@ function DisclosureResults({ presentation }) {
   )
 }
 
-export default function ChatbotWidget({ enabled = true, isLoggedIn = false }) {
+<<<<<<< HEAD
+function ChatOrderForm({ onClose, onSubmit }) {
+  const [exchange, setExchange] = useState('TOSS')
+  const [brokerEnv, setBrokerEnv] = useState('REAL')
+  const [side, setSide] = useState('BUY')
+  const [symbolQuery, setSymbolQuery] = useState('')
+  const [quantity, setQuantity] = useState('1')
+  const [orderType, setOrderType] = useState('LIMIT')
+  const [price, setPrice] = useState('')
+
+  const [isConditional, setIsConditional] = useState(false)
+  const [conditionalCategory, setConditionalCategory] = useState('SELL_STOP_LIMIT') // SELL_STOP_LIMIT, BUY_TRIGGER
+  const [targetProfitRate, setTargetProfitRate] = useState('3')
+  const [stopLossRate, setStopLossRate] = useState('-3')
+  const [buyTriggerPrice, setBuyTriggerPrice] = useState('')
+  const [conditionalMode, setConditionalMode] = useState('PROPOSAL')
+
+  useEffect(() => {
+    if (exchange === 'TOSS' || exchange === 'COINONE') {
+      setBrokerEnv('REAL')
+    }
+  }, [exchange])
+
+  const handleSubmitForm = (e) => {
+    e.preventDefault()
+    if (!symbolQuery.trim()) {
+      alert('종목명을 입력하세요.')
+      return
+    }
+    const qtyVal = parseFloat(quantity)
+    if (isNaN(qtyVal) || qtyVal <= 0) {
+      alert('올바른 수량을 입력하세요.')
+      return
+    }
+
+    let priceVal = null
+    if (orderType === 'LIMIT') {
+      priceVal = parseFloat(price)
+      if (isNaN(priceVal) || priceVal <= 0) {
+        alert('올바른 지정가를 입력하세요.')
+        return
+      }
+    }
+
+    let condPriceVal = null
+    let profitRateVal = 0.0
+    let lossRateVal = 0.0
+    let condType = 'BUY_LIMIT'
+
+    if (isConditional) {
+      if (conditionalCategory === 'BUY_TRIGGER') {
+        condPriceVal = parseFloat(buyTriggerPrice)
+        if (isNaN(condPriceVal) || condPriceVal <= 0) {
+          alert('올바른 조건매수 가격을 입력하세요.')
+          return
+        }
+        condType = 'BUY_LIMIT'
+      } else {
+        profitRateVal = parseFloat(targetProfitRate)
+        lossRateVal = parseFloat(stopLossRate)
+        if (isNaN(profitRateVal) || isNaN(lossRateVal)) {
+          alert('올바른 익절/손절 비율을 입력하세요.')
+          return
+        }
+        condType = 'STOP_LIMIT'
+      }
+    }
+
+    onSubmit({
+      is_structured_order: true,
+      exchange,
+      broker_env: brokerEnv,
+      side,
+      symbol_query: symbolQuery,
+      quantity: qtyVal,
+      order_type: orderType,
+      price: priceVal,
+      is_conditional: isConditional,
+      conditional_type: condType,
+      conditional_price: condPriceVal,
+      target_profit_rate: profitRateVal,
+      stop_loss_rate: lossRateVal,
+      conditional_mode: conditionalMode,
+    })
+  }
+
+  const isMockDisabled = exchange === 'TOSS' || exchange === 'COINONE'
+  const isMarketDisabled = exchange === 'COINONE'
+
+  return (
+    <form onSubmit={handleSubmitForm} className="space-y-2 rounded-lg border border-slate-700 bg-slate-900/90 p-3.5 text-xs text-slate-100 backdrop-blur-md">
+      <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
+        <h3 className="font-bold text-ai-cyan">반자율 주문 제안 생성기</h3>
+        <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-200">닫기</button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="mb-1 block text-[10px] text-slate-400">거래소</label>
+          <select
+            value={exchange}
+            onChange={(e) => {
+              const val = e.target.value;
+              setExchange(val);
+              if (val === 'COINONE') {
+                setOrderType('LIMIT');
+              }
+            }}
+            className="w-full rounded border border-slate-700 bg-slate-950 p-1 text-slate-200 outline-none focus:border-ai-cyan"
+          >
+            <option value="TOSS">TOSS (주식)</option>
+            <option value="COINONE">COINONE (코인)</option>
+            <option value="KIS">한국투자증권</option>
+            <option value="BINANCE">BINANCE (선물)</option>
+          </select>
+        </div>
+
+        <div>
+          <label className="mb-1 block text-[10px] text-slate-400">투자 환경</label>
+          <select
+            value={brokerEnv}
+            disabled={isMockDisabled}
+            onChange={(e) => setBrokerEnv(e.target.value)}
+            className="w-full rounded border border-slate-700 bg-slate-950 p-1 text-slate-200 outline-none focus:border-ai-cyan disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <option value="REAL">실제투자 (REAL)</option>
+            <option value="MOCK">모의투자 (MOCK)</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="mb-1 block text-[10px] text-slate-400">구분</label>
+          <div className="flex rounded border border-slate-700 bg-slate-950 p-0.5">
+            <button
+              type="button"
+              onClick={() => setSide('BUY')}
+              className={`flex-1 rounded py-0.5 font-bold ${side === 'BUY' ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}
+            >
+              매수
+            </button>
+            <button
+              type="button"
+              onClick={() => setSide('SELL')}
+              className={`flex-1 rounded py-0.5 font-bold ${side === 'SELL' ? 'bg-rose-600 text-white' : 'text-slate-400'}`}
+            >
+              매도
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <label className="mb-1 block text-[10px] text-slate-400">주문 유형</label>
+          <div className="flex rounded border border-slate-700 bg-slate-950 p-0.5">
+            <button
+              type="button"
+              onClick={() => setOrderType('LIMIT')}
+              className={`flex-1 rounded py-0.5 font-bold ${orderType === 'LIMIT' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}
+            >
+              지정가
+            </button>
+            <button
+              type="button"
+              disabled={isMarketDisabled}
+              onClick={() => setOrderType('MARKET')}
+              className={`flex-1 rounded py-0.5 font-bold disabled:cursor-not-allowed disabled:opacity-40 ${orderType === 'MARKET' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}
+            >
+              시장가
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="mb-1 block text-[10px] text-slate-400">종목</label>
+          <input
+            type="text"
+            value={symbolQuery}
+            onChange={(e) => setSymbolQuery(e.target.value)}
+            placeholder="예: 이노스페이스, AAPL"
+            className="w-full rounded border border-slate-700 bg-slate-950 p-1 text-slate-200 outline-none focus:border-ai-cyan"
+          />
+        </div>
+
+        <div>
+          <label className="mb-1 block text-[10px] text-slate-400">수량</label>
+          <input
+            type="number"
+            step="any"
+            value={quantity}
+            onChange={(e) => setQuantity(e.target.value)}
+            placeholder="수량"
+            className="w-full rounded border border-slate-700 bg-slate-950 p-1 text-slate-200 outline-none focus:border-ai-cyan font-mono"
+          />
+        </div>
+      </div>
+
+      {orderType === 'LIMIT' && (
+        <div>
+          <label className="mb-1 block text-[10px] text-slate-400">주문 단가</label>
+          <input
+            type="number"
+            step="any"
+            value={price}
+            onChange={(e) => setPrice(e.target.value)}
+            placeholder="단가 입력"
+            className="w-full rounded border border-slate-700 bg-slate-950 p-1 text-slate-200 outline-none focus:border-ai-cyan font-mono"
+          />
+        </div>
+      )}
+
+      <div className="border-t border-slate-800 pt-2">
+        <label className="flex items-center gap-1.5 cursor-pointer text-slate-300 font-bold">
+          <input
+            type="checkbox"
+            checked={isConditional}
+            onChange={(e) => setIsConditional(e.target.checked)}
+            className="rounded border-slate-700 bg-slate-950 text-ai-cyan focus:ring-0 focus:ring-offset-0"
+          />
+          조건감시(스케줄링) 설정 추가
+        </label>
+      </div>
+
+      {isConditional && (
+        <div className="space-y-2 rounded border border-slate-800 bg-slate-950/40 p-2">
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="mb-1 block text-[10px] text-slate-400">감시 구분</label>
+              <select
+                value={conditionalCategory}
+                onChange={(e) => setConditionalCategory(e.target.value)}
+                className="w-full rounded border border-slate-700 bg-slate-950 p-1 text-slate-200 outline-none focus:border-ai-cyan"
+              >
+                <option value="SELL_STOP_LIMIT">조건 매도 (수익률 % 감시)</option>
+                <option value="BUY_TRIGGER">조건 매수 (지정 가격 도달)</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-[10px] text-slate-400">실행 모드</label>
+              <select
+                value={conditionalMode}
+                onChange={(e) => setConditionalMode(e.target.value)}
+                className="w-full rounded border border-slate-700 bg-slate-950 p-1 text-slate-200 outline-none focus:border-ai-cyan"
+              >
+                <option value="PROPOSAL">제안 생성 (PROPOSAL)</option>
+                <option value="AUTO">자동 주문 (AUTO)</option>
+              </select>
+            </div>
+          </div>
+
+          {conditionalCategory === 'SELL_STOP_LIMIT' ? (
+            <div className="grid grid-cols-2 gap-2 border-t border-slate-800/80 pt-1.5">
+              <div>
+                <label className="mb-1 block text-[10px] text-slate-400">익절 목표 (%)</label>
+                <input
+                  type="number"
+                  step="any"
+                  value={targetProfitRate}
+                  onChange={(e) => setTargetProfitRate(e.target.value)}
+                  placeholder="예: 5 (+5%)"
+                  className="w-full rounded border border-slate-700 bg-slate-950 p-1 text-slate-200 outline-none focus:border-ai-cyan font-mono"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-[10px] text-slate-400">손절 제한 (%)</label>
+                <input
+                  type="number"
+                  step="any"
+                  value={stopLossRate}
+                  onChange={(e) => setStopLossRate(e.target.value)}
+                  placeholder="예: -3 (-3%)"
+                  className="w-full rounded border border-slate-700 bg-slate-950 p-1 text-slate-200 outline-none focus:border-ai-cyan font-mono"
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="border-t border-slate-800/80 pt-1.5">
+              <label className="mb-1 block text-[10px] text-slate-400">감시 기준가격</label>
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="number"
+                  step="any"
+                  value={buyTriggerPrice}
+                  onChange={(e) => setBuyTriggerPrice(e.target.value)}
+                  placeholder="기준가격 입력"
+                  className="flex-1 rounded border border-slate-700 bg-slate-950 p-1.5 text-slate-200 outline-none focus:border-ai-cyan font-mono"
+                />
+                <span className="text-[10px] text-slate-400">원/USD 이하 도달 시 매수</span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      <button
+        type="submit"
+        className="w-full rounded bg-ai-cyan py-1.5 text-xs font-bold text-[#07111f] transition hover:brightness-110"
+      >
+        매매 제안 전송
+      </button>
+    </form>
+  )
+}
+
+export default function ChatbotWidget({
+  enabled = true,
+  isLoggedIn = false,
+  presentation = 'floating',
+  onClose = null,
+}) {
   const navigate = useNavigate()
-  const [isOpen, setIsOpen] = useState(false)
+  const isMobilePage = presentation === 'mobile-page'
+  const [isOpen, setIsOpen] = useState(isMobilePage)
   const [panelSize, setPanelSize] = useState(getDefaultChatbotSize)
   const [messages, setMessages] = useState(INITIAL_MESSAGES)
   const [input, setInput] = useState('')
   const [isSending, setIsSending] = useState(false)
+  const [showOrderForm, setShowOrderForm] = useState(false)
+  const [isQuickMenuOpen, setIsQuickMenuOpen] = useState(false)
   const [pendingProposals, setPendingProposals] = useState([])
   const [proposalActionId, setProposalActionId] = useState('')
   const widgetInstanceId = useId()
@@ -463,12 +866,27 @@ export default function ChatbotWidget({ enabled = true, isLoggedIn = false }) {
   const resizeStateRef = useRef(null)
 
   useEffect(() => {
-    if (!enabled || !isOpen) return
+    const handleOpenChatbot = () => {
+      if (!enabled || isMobilePage) return
+
+      setPanelSize(getDefaultChatbotSize())
+      setIsOpen(true)
+      window.setTimeout(() => inputRef.current?.focus(), 80)
+    }
+
+    window.addEventListener('antry:open-chatbot', handleOpenChatbot)
+    return () => {
+      window.removeEventListener('antry:open-chatbot', handleOpenChatbot)
+    }
+  }, [enabled, isMobilePage])
+
+  useEffect(() => {
+    if (!enabled || (!isOpen && !isMobilePage)) return
 
     window.requestAnimationFrame(() => {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
     })
-  }, [enabled, isOpen, messages, pendingProposals, isSending])
+  }, [enabled, isMobilePage, isOpen, messages, pendingProposals, isSending])
 
   useEffect(() => {
     let active = true
@@ -552,9 +970,27 @@ export default function ChatbotWidget({ enabled = true, isLoggedIn = false }) {
   }
 
   const closeChat = () => {
+    if (isMobilePage) {
+      onClose?.()
+      return
+    }
+
     resizeStateRef.current = null
     setIsOpen(false)
     setPanelSize(getDefaultChatbotSize())
+  }
+
+  const resetConversation = () => {
+    setInput('')
+    setIsSending(false)
+    setIsQuickMenuOpen(false)
+    setMessages(INITIAL_MESSAGES.map((message) => ({
+      ...message,
+      createdAt: new Date().toISOString(),
+    })))
+    setPendingProposals([])
+    messageIdSequenceRef.current = 0
+    timelineOrderSequenceRef.current = 0
   }
 
   const startResize = (event, direction) => {
@@ -598,7 +1034,7 @@ export default function ChatbotWidget({ enabled = true, isLoggedIn = false }) {
   const handleAction = (action) => {
     if (action?.type === 'navigate' && action.to) {
       navigate(action.to)
-      closeChat()
+      if (!isMobilePage) closeChat()
     }
   }
 
@@ -627,6 +1063,7 @@ export default function ChatbotWidget({ enabled = true, isLoggedIn = false }) {
         throw new Error(buildApiErrorText(payload, '매매 제안 거절에 실패했습니다.'))
       }
       setPendingProposals((items) => items.filter((item) => item.id !== proposalId))
+      addMessage('assistant', '매매 제안이 정상적으로 거절(취소)되었습니다.')
     } catch (error) {
       addMessage('assistant', buildApiErrorText(error, '매매 제안 거절에 실패했습니다.'))
     } finally {
@@ -655,6 +1092,8 @@ export default function ChatbotWidget({ enabled = true, isLoggedIn = false }) {
         throw new Error(buildApiErrorText(payload, '매매 제안 승인에 실패했습니다.'))
       }
       setPendingProposals((items) => items.filter((item) => item.id !== proposal.id))
+      const successMsg = payload.message || `${proposal.symbol || proposal.ticker} ${proposal.side === 'BUY' ? '매수' : '매도'} 주문이 성공적으로 제출되었습니다.`
+      addMessage('assistant', successMsg)
     } catch (error) {
       addMessage('assistant', buildApiErrorText(error, '매매 제안 승인에 실패했습니다.'))
     } finally {
@@ -740,7 +1179,7 @@ export default function ChatbotWidget({ enabled = true, isLoggedIn = false }) {
   const submitMessage = async (text = input) => {
     if (!isLoggedIn) {
       navigate('/login')
-      closeChat()
+      if (!isMobilePage) closeChat()
       return
     }
 
@@ -748,6 +1187,7 @@ export default function ChatbotWidget({ enabled = true, isLoggedIn = false }) {
     if (!trimmed || isSending) return
 
     setInput('')
+    setIsQuickMenuOpen(false)
     addMessage('user', trimmed)
     setIsSending(true)
     const assistantMessageId = addStreamingAssistantMessage()
@@ -774,6 +1214,55 @@ export default function ChatbotWidget({ enabled = true, isLoggedIn = false }) {
     }
   }
 
+  const handleFormSubmit = async (structuredPayload) => {
+    setShowOrderForm(false)
+    if (!isLoggedIn) {
+      navigate('/login')
+      closeChat()
+      return
+    }
+    if (isSending) return
+
+    const priceText = structuredPayload.order_type === 'LIMIT' ? `${structuredPayload.price.toLocaleString()}원 지정가` : '시장가'
+    let condText = ''
+    if (structuredPayload.is_conditional) {
+      if (structuredPayload.conditional_type === 'BUY_LIMIT') {
+        condText = ` (조건매수: ${structuredPayload.conditional_price.toLocaleString()}원 이하 감시, 실행: ${structuredPayload.conditional_mode})`
+      } else {
+        condText = ` (조건매도: 익절 +${structuredPayload.target_profit_rate}%, 손절 ${structuredPayload.stop_loss_rate}%, 실행: ${structuredPayload.conditional_mode})`
+      }
+    }
+    const displayMsg = `[주문 폼 전송] ${structuredPayload.exchange} (${structuredPayload.broker_env}) ${structuredPayload.symbol_query} ${structuredPayload.quantity}주 ${structuredPayload.side === 'BUY' ? '매수' : '매도'} ${priceText}${condText}`
+
+    addMessage('user', displayMsg)
+    setIsSending(true)
+    const assistantMessageId = addStreamingAssistantMessage()
+
+    try {
+      await streamChatbotMessage(
+        displayMsg,
+        {
+          onTrace: (traceStep) => appendAssistantTrace(assistantMessageId, traceStep),
+          onDelta: (textChunk) => appendAssistantDelta(assistantMessageId, textChunk),
+          onDone: (payload) => completeAssistantStream(assistantMessageId, payload),
+        },
+        {
+          timezone: getUserTimeZone(),
+          structured_order: structuredPayload
+        },
+      )
+    } catch (error) {
+      completeAssistantStream(assistantMessageId, {
+        reply: error.message || '챗봇 연결 중 문제가 발생했습니다.',
+        actions: [],
+        meta: {},
+      })
+    } finally {
+      setIsSending(false)
+      window.setTimeout(() => inputRef.current?.focus(), 80)
+    }
+  }
+
   const handleSubmit = (event) => {
     event.preventDefault()
     submitMessage()
@@ -781,10 +1270,12 @@ export default function ChatbotWidget({ enabled = true, isLoggedIn = false }) {
 
   return (
     <>
-      {isOpen && (
+      {(isOpen || isMobilePage) && (
         <section
-          className="fixed bottom-24 right-4 z-40 flex h-[min(560px,calc(100vh-128px))] w-[min(390px,calc(100vw-32px))] flex-col overflow-hidden rounded-lg border border-ai-cyan/35 bg-[#070b14]/95 shadow-[0_18px_60px_rgba(0,0,0,0.45)] backdrop-blur md:right-6 md:h-auto md:w-auto"
-          style={{
+          className={isMobilePage
+            ? 'flex min-h-dvh flex-col overflow-hidden bg-obsidian-bg text-slate-100'
+            : 'fixed bottom-24 right-4 z-40 flex h-[min(560px,calc(100vh-128px))] w-[min(390px,calc(100vw-32px))] flex-col overflow-hidden rounded-lg border border-ai-cyan/35 bg-[#070b14]/95 shadow-[0_18px_60px_rgba(0,0,0,0.45)] backdrop-blur md:right-6 md:h-auto md:w-auto'}
+          style={isMobilePage ? undefined : {
             width: `${panelSize.width}px`,
             height: `${panelSize.height}px`,
             maxWidth: 'min(720px, calc(90vw))',
@@ -806,7 +1297,36 @@ export default function ChatbotWidget({ enabled = true, isLoggedIn = false }) {
             onMouseDown={(event) => startResize(event, 'y')}
             aria-hidden="true"
           />
-          <header className="flex items-center justify-between border-b border-slate-800 bg-[#0f172a] px-4 py-3">
+          <header className={isMobilePage
+            ? 'grid grid-cols-[1fr_auto_1fr] items-center px-5 pb-6 pt-[calc(env(safe-area-inset-top)+18px)]'
+            : 'flex items-center justify-between border-b border-slate-800 bg-[#0f172a] px-4 py-3'}
+          >
+            {isMobilePage ? (
+              <>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={resetConversation}
+                    className="grid h-10 w-10 place-items-center rounded-full text-ai-cyan transition active:bg-ai-cyan/10"
+                    aria-label="Reset chat"
+                  >
+                    <span className="material-symbols-outlined text-[30px] leading-none">refresh</span>
+                  </button>
+                </div>
+                <h1 className="text-center text-2xl font-black tracking-tight text-white">챗봇 상담</h1>
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={closeChat}
+                    className="grid h-12 w-12 place-items-center rounded-full text-slate-200 transition active:bg-ai-cyan/10 active:text-ai-cyan"
+                    aria-label="Close chatbot"
+                  >
+                    <span className="material-symbols-outlined text-[42px] leading-none">close</span>
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
             <div className="flex min-w-0 items-center gap-3">
               <img
                 src="/chatbot-bot.png"
@@ -825,9 +1345,19 @@ export default function ChatbotWidget({ enabled = true, isLoggedIn = false }) {
             >
               x
             </button>
+              </>
+            )}
           </header>
 
-          <div className="flex flex-1 flex-col gap-3 overflow-y-auto px-4 py-4">
+          <div className={isMobilePage
+            ? 'flex flex-1 flex-col gap-3 overflow-y-auto px-5 pb-6 pt-2'
+            : 'flex flex-1 flex-col gap-3 overflow-y-auto px-4 py-4'}
+          >
+            {isMobilePage ? (
+              <div className="mb-1 flex h-14 w-14 items-center justify-center overflow-hidden rounded-full border border-ai-cyan/40 bg-ai-cyan/10">
+                <img src="/chatbot-bot.png" alt="" className="h-full w-full object-cover object-top" />
+              </div>
+            ) : null}
             {buildChatbotTimeline(messages, pendingProposals).map((item) => (
               item.type === 'message'
                 ? <ChatMessage key={item.id} message={item.data} onAction={handleAction} />
@@ -849,23 +1379,69 @@ export default function ChatbotWidget({ enabled = true, isLoggedIn = false }) {
             <div ref={messagesEndRef} aria-hidden="true" />
           </div>
 
-          <div className="border-t border-slate-800 bg-[#0b1120] p-3">
-            {isLoggedIn ? (
-              <div className="mb-3 flex flex-wrap gap-2">
+          <div className={isMobilePage
+            ? 'border-t border-ai-cyan/10 bg-[#061321]/95 px-4 pb-[calc(env(safe-area-inset-bottom)+14px)] pt-4 shadow-[0_-14px_34px_rgba(0,0,0,0.42)] backdrop-blur-xl'
+            : 'border-t border-slate-800 bg-[#0b1120] p-3'}
+          >
+            {isLoggedIn && (!isMobilePage || isQuickMenuOpen) ? (
+              <div className={isMobilePage
+                ? 'mb-4 rounded-lg border border-slate-800 bg-[#0f172a]/80 p-3'
+                : 'mb-3 flex flex-wrap gap-2'}
+              >
+                {isMobilePage ? (
+                  <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-ai-cyan">Category</p>
+                ) : null}
+                <div className={isMobilePage ? 'flex flex-wrap gap-2' : 'contents'}>
                 {QUICK_MESSAGES.map((message) => (
                   <button
                     key={message}
                     type="button"
-                    onClick={() => submitMessage(message)}
+                    onClick={() => {
+                      if (message.includes('매매 제안')) {
+                        setShowOrderForm((prev) => !prev)
+                      } else {
+                        submitMessage(message)
+                      }
+                    }}
                     disabled={isSending}
-                    className="rounded border border-slate-700 px-2.5 py-1.5 text-[11px] font-bold text-slate-300 transition hover:border-ai-cyan hover:text-ai-cyan disabled:opacity-50"
+                    className={isMobilePage
+                      ? 'rounded-full border border-slate-700 bg-[#0f172a] px-4 py-2 text-sm font-bold text-slate-300 transition active:border-ai-cyan active:bg-ai-cyan/10 active:text-ai-cyan disabled:opacity-50'
+                      : `rounded border px-2.5 py-1.5 text-[11px] font-bold transition disabled:opacity-50 ${
+                          message.includes('매매 제안')
+                            ? 'border-ai-cyan/60 bg-ai-cyan/10 text-ai-cyan hover:bg-ai-cyan hover:text-[#07111f]'
+                            : 'border-slate-700 text-slate-300 hover:border-ai-cyan hover:text-ai-cyan'
+                        }`}
                   >
                     {message}
                   </button>
                 ))}
+                </div>
               </div>
             ) : null}
-            <form onSubmit={handleSubmit} className="flex items-end gap-2">
+            {showOrderForm && (
+              <div className="mb-3 max-h-[320px] overflow-y-auto rounded-lg border border-slate-800 bg-[#070b14]/90 p-0.5">
+                <ChatOrderForm
+                  onClose={() => setShowOrderForm(false)}
+                  onSubmit={handleFormSubmit}
+                />
+              </div>
+            )}
+            <form onSubmit={handleSubmit} className={isMobilePage ? 'flex items-center gap-3' : 'flex items-end gap-2'}>
+              {isMobilePage ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setIsQuickMenuOpen((open) => !open)}
+                    className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-slate-400 transition active:bg-ai-cyan/10 active:text-ai-cyan"
+                    aria-label={isQuickMenuOpen ? 'Close chatbot categories' : 'Open chatbot categories'}
+                    aria-expanded={isQuickMenuOpen}
+                  >
+                    <span className="material-symbols-outlined text-[34px] leading-none">menu</span>
+                  </button>
+                  <div className="h-12 w-px shrink-0 bg-slate-700" aria-hidden="true" />
+                </>
+              ) : null}
+>>>>>>> pr-206
               <textarea
                 ref={inputRef}
                 value={input}
@@ -881,29 +1457,39 @@ export default function ChatbotWidget({ enabled = true, isLoggedIn = false }) {
                 }}
                 rows={2}
                 readOnly={!isLoggedIn}
-                placeholder={isLoggedIn ? '메시지를 입력하세요' : '로그인 후 이용 가능합니다'}
-                className="min-h-11 flex-1 resize-none rounded border border-slate-700 bg-[#111827] px-3 py-2 text-xs text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-ai-cyan read-only:cursor-pointer read-only:border-ai-cyan/40"
+                placeholder={isLoggedIn ? (isMobilePage ? '궁금한 점을 입력해 주세요.' : '메시지를 입력하세요') : '로그인 후 이용 가능합니다'}
+                className={isMobilePage
+                  ? 'max-h-28 min-h-12 flex-1 resize-none border-none bg-transparent px-0 py-3 text-lg leading-6 text-slate-100 outline-none placeholder:text-slate-400 read-only:cursor-pointer'
+                  : 'min-h-11 flex-1 resize-none rounded border border-slate-700 bg-[#111827] px-3 py-2 text-xs text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-ai-cyan read-only:cursor-pointer read-only:border-ai-cyan/40'}
               />
               <button
                 type="submit"
                 disabled={isLoggedIn ? isSending || !input.trim() : false}
-                className="h-11 shrink-0 rounded bg-ai-cyan px-4 text-xs font-bold text-[#07111f] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+                className={isMobilePage
+                  ? 'grid h-12 w-12 shrink-0 place-items-center rounded-full text-ai-cyan transition active:bg-ai-cyan/10 disabled:cursor-not-allowed disabled:opacity-40'
+                  : 'h-11 shrink-0 rounded bg-ai-cyan px-4 text-xs font-bold text-[#07111f] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50'}
               >
-                {isLoggedIn ? '전송' : '로그인'}
+                {isMobilePage ? (
+                  <span className="material-symbols-outlined rotate-[-28deg] text-[42px] leading-none">send</span>
+                ) : (
+                  isLoggedIn ? '전송' : '로그인'
+                )}
               </button>
             </form>
           </div>
         </section>
       )}
 
-      <button
-        type="button"
-        onClick={isOpen ? closeChat : openChat}
-        className="fixed bottom-6 right-4 z-40 grid h-16 w-16 place-items-center overflow-hidden rounded-full border-2 border-ai-cyan/70 bg-[#07111f] shadow-[0_0_28px_rgba(0,242,254,0.28)] transition hover:scale-105 hover:border-ai-cyan md:right-6"
-        aria-label={isOpen ? '챗봇 닫기' : '챗봇 열기'}
-      >
-        <img src="/chatbot-bot.png" alt="" className="h-full w-full object-cover object-top" />
-      </button>
+      {!isMobilePage ? (
+        <button
+          type="button"
+          onClick={isOpen ? closeChat : openChat}
+          className="fixed bottom-6 right-4 z-40 hidden h-16 w-16 place-items-center overflow-hidden rounded-full border-2 border-ai-cyan/70 bg-[#07111f] shadow-[0_0_28px_rgba(0,242,254,0.28)] transition hover:scale-105 hover:border-ai-cyan md:right-6 md:grid"
+          aria-label={isOpen ? '챗봇 닫기' : '챗봇 열기'}
+        >
+          <img src="/chatbot-bot.png" alt="" className="h-full w-full object-cover object-top" />
+        </button>
+      ) : null}
     </>
   )
 }
