@@ -44,7 +44,32 @@ function formatMessageTime(createdAt) {
   if (!createdAt) return ''
 
   try {
+    const formatted = new Intl.DateTimeFormat('ko-KR', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+      timeZone: getUserTimeZone(),
+    }).formatToParts(new Date(createdAt))
+    const dayPeriod = formatted.find((part) => part.type === 'dayPeriod')?.value || ''
+    const hour = formatted.find((part) => part.type === 'hour')?.value || ''
+    const minute = formatted.find((part) => part.type === 'minute')?.value || ''
+    return [dayPeriod, hour && minute ? `${hour}:${minute}` : ''].filter(Boolean).join(' ')
+  } catch {
+    try {
+      return new Date(createdAt).toTimeString().slice(0, 5)
+    } catch {
+      return ''
+    }
+  }
+}
+
+function formatMessageDateTime(createdAt) {
+  if (!createdAt) return ''
+
+  try {
     return new Intl.DateTimeFormat('ko-KR', {
+      month: '2-digit',
+      day: '2-digit',
       hour: 'numeric',
       minute: '2-digit',
       hour12: true,
@@ -137,6 +162,7 @@ function TradeProposalCard({ proposal, proposalActionId, onApprove, onReject }) 
 function ChatMessage({ message, onAction }) {
   const isUser = message.role === 'user'
   const messageTime = formatMessageTime(message.createdAt)
+  const messageDateTime = formatMessageDateTime(message.createdAt)
   const actions = Array.isArray(message.actions) ? message.actions : []
   const disclosurePresentation = buildDisclosurePresentation(message.toolResult)
   const newsPresentation = buildNewsPresentation(message.toolResult)
@@ -176,7 +202,11 @@ function ChatMessage({ message, onAction }) {
           </div>
         )}
         {hasMessageBody && messageTime && (
-          <time className="px-1 text-[10px] font-medium text-slate-500" dateTime={message.createdAt}>
+          <time
+            className="max-w-full shrink-0 whitespace-nowrap px-1 text-[10px] font-medium leading-4 text-slate-500"
+            dateTime={message.createdAt}
+            title={messageDateTime || undefined}
+          >
             {messageTime}
           </time>
         )}
