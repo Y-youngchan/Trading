@@ -625,14 +625,24 @@ class ChatbotService:
         user_message: str,
         tool_call: dict,
         tool_result: dict,
+        user_id: str | None,
+        auth_header: str | None,
+        request_id: str | None = None,
     ) -> str:
         function_info = tool_call.get("function") or {}
+        synthesis_arguments = {
+            "system_prompt": system_prompt,
+            "user_message": user_message,
+            "tool_name": function_info.get("name"),
+            "tool_reply": str(tool_result.get("reply") or ""),
+            "tool_data": tool_result.get("data") if isinstance(tool_result.get("data"), dict) else None,
+            "user_id": user_id,
+            "auth_header": auth_header,
+        }
+        if request_id:
+            synthesis_arguments["request_id"] = request_id
         synthesis = self.llm_client.synthesize_tool_result_reply(
-            system_prompt=system_prompt,
-            user_message=user_message,
-            tool_name=function_info.get("name"),
-            tool_reply=str(tool_result.get("reply") or ""),
-            tool_data=tool_result.get("data") if isinstance(tool_result.get("data"), dict) else None,
+            **synthesis_arguments,
         )
         synthesized_reply = str((synthesis or {}).get("reply") or "").strip()
         return synthesized_reply or str(tool_result.get("reply") or "")
@@ -645,6 +655,7 @@ class ChatbotService:
         user_timezone: str | None = None,
         trace_callback: TraceCallback | None = None,
         delta_callback: Callable[[str], None] | None = None,
+        request_id: str | None = None,
     ) -> dict:
         text = str(message or "").strip()
         if not text:
@@ -807,6 +818,8 @@ class ChatbotService:
             "function_schemas": FUNCTION_SCHEMAS,
             "history": history,
         }
+        if request_id:
+            llm_arguments["request_id"] = request_id
         if delta_callback:
             result = self.llm_client.stream_reply(
                 **llm_arguments,
@@ -828,6 +841,9 @@ class ChatbotService:
                         text,
                         tool_call,
                         tool_result,
+                        user_id,
+                        auth_header,
+                        request_id,
                     )
                 except Exception:
                     self._log_repository_failure("OpenAI 도구 결과 재합성에 실패했습니다.")
