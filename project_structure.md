@@ -243,6 +243,8 @@ frontend/
         ├── tradeHistoryModel.js
         ├── tradeHistoryModel.test.mjs
         ├── WatchlistTab.jsx
+        ├── watchlistModel.js
+        ├── watchlistModel.test.mjs
         └── mobile/
 ```
 
@@ -276,6 +278,12 @@ frontend/
   - `AssetsTab.jsx`와 `MobileAssetsTab.jsx`가 공유하는 통화 포맷, 계좌 요약 카드, 보유 종목 표시 행, 정렬, 배분 그래디언트 순수 유틸
 - `assetsTabModel.test.mjs`
   - `assetsTabModel.js`의 순수 함수 Node test
+- `WatchlistTab.jsx`
+  - 관심종목 목록, 드래그 순서 변경, 관심종목 차트와 뉴스 요약을 제공하는 데스크톱 탭
+- `watchlistModel.js`
+  - `WatchlistTab.jsx`와 `MobileWatchlistTab.jsx`가 공유하는 시장 필터, 차트 config, 캔들 정규화, 선택 종목 보정 순수 유틸
+- `watchlistModel.test.mjs`
+  - `watchlistModel.js`의 순수 함수 Node test
 - `AdminInquiryPanel.jsx`
   - 3분리 모델 자동화 상태 모니터링 및 수동 검증 패널
 - `AdminMlData.jsx`
