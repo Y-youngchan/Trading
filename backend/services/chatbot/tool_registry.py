@@ -278,6 +278,7 @@ def list_available_tools() -> list[str]:
         "list_open_orders",
         "get_market_calendar",
         "get_exchange_rate",
+        "get_asset_krw_conversion",
         "get_asset_price",
         "get_asset_orderbook",
         "get_asset_candles",
@@ -1009,6 +1010,207 @@ def get_exchange_rate(auth_header: str, message: str) -> dict:
     return {
         "reply": f"{captured_at} 기준\n{base}/{quote} 환율은 1 {base} = {rate:,.2f} {quote}입니다.\n출처: {source}",
         "data": data,
+    }
+
+
+KRW_CONVERSION_NOTICE = "실제 주문 금액은 환전 수수료, 주문 수수료, 체결가 변동에 따라 달라질 수 있습니다."
+
+
+def _is_krw_conversion_request(text: str) -> bool:
+    value = str(text or "")
+    keywords = [
+        "원화",
+        "한화",
+        "원으로",
+        "KRW",
+        "환율 계산",
+        "환율계산",
+        "원화 환산",
+        "한화 환산",
+        "원화로",
+        "한화로",
+    ]
+    return any(keyword.upper() in value.upper() for keyword in keywords)
+
+
+def _detect_share_quantity(text: str, default: float = 1.0) -> float:
+    value = str(text or "")
+    match = re.search(r"(\d+(?:\.\d+)?)\s*(?:주|株|shares?|SHARES?)", value, flags=re.IGNORECASE)
+    if not match:
+        return default
+    quantity = _to_float(match.group(1), default)
+    return quantity if quantity > 0 else default
+
+
+def _get_usd_krw_rate(auth_header: str, broker_env: str = "REAL") -> dict:
+    payload = _get_internal(
+        "/api/market/exchange-rate",
+        auth_header,
+        params={
+            "base": "USD",
+            "quote": "KRW",
+            "broker_env": broker_env,
+        },
+    )
+    data = payload.get("data") or {}
+    return {
+        "rate": _to_float(data.get("rate")),
+        "source": data.get("source") or "TOSS",
+        "captured_at": str(data.get("captured_at") or "")[:10],
+        "raw": data,
+    }
+
+
+def _resolve_asset_price_for_krw_conversion(auth_header: str, message: str, context: dict | None = None) -> dict:
+    context_data = context if isinstance(context, dict) else {}
+    symbol = str(context_data.get("symbol") or "").upper()
+    display_name = str(context_data.get("display_name") or symbol).strip()
+    asset_type = str(context_data.get("asset_type") or "").upper()
+    market = str(context_data.get("market") or "").upper()
+    exchange = str(context_data.get("exchange") or "").upper()
+    broker_env = str(context_data.get("broker_env") or _detect_env(message) or "REAL").upper()
+    current_price = _to_float(context_data.get("current_price"))
+    currency = str(context_data.get("currency") or "").upper()
+
+    if not symbol:
+        symbol_query = _extract_symbol_query(message)
+        if not symbol_query:
+            return {"error": "missing_symbol"}
+        try:
+            symbol_data = _resolve_symbol(auth_header, symbol_query)
+        except SymbolDisambiguationError as error:
+            return {"disambiguation": _build_symbol_choice_response(error.query, error.candidates)}
+        except Exception:
+            return {"error": "symbol_not_found", "query": symbol_query}
+
+        symbol = str(symbol_data.get("symbol") or symbol_query).upper()
+        display_name = str(symbol_data.get("display_name") or symbol).strip()
+        asset_type = str(symbol_data.get("asset_type") or "").upper()
+        market = str(symbol_data.get("market") or "").upper()
+        exchange = _detect_exchange(message) or _default_exchange_for_asset(asset_type, market)
+        broker_env = _detect_env(message) or "REAL"
+
+    if current_price <= 0 or not currency:
+        payload = _get_internal(
+            "/api/chart/quote",
+            auth_header,
+            params={
+                "exchange": exchange or _default_exchange_for_asset(asset_type, market),
+                "symbol": symbol,
+                "broker_env": broker_env,
+            },
+        )
+        data = payload.get("data") or {}
+        current_price = _to_float(
+            data.get("current_price")
+            or data.get("price")
+            or data.get("last")
+            or data.get("close")
+        )
+        currency = str(data.get("currency") or currency or ("USD" if market == "US" else "KRW")).upper()
+        exchange = str(data.get("exchange") or exchange).upper()
+
+    return {
+        "symbol": symbol,
+        "display_name": display_name,
+        "asset_type": asset_type,
+        "market": market,
+        "exchange": exchange,
+        "broker_env": broker_env,
+        "current_price": current_price,
+        "currency": currency,
+    }
+
+
+def get_asset_krw_conversion(auth_header: str, message: str, context: dict | None = None) -> dict:
+    asset = _resolve_asset_price_for_krw_conversion(auth_header, message, context)
+    if asset.get("disambiguation"):
+        return asset["disambiguation"]
+    if asset.get("error") == "missing_symbol":
+        return {
+            "reply": "어떤 해외주식을 원화로 계산할까요?\n예: 애플 원화로 얼마야, AAPL 1주 한화로 계산해줘",
+            "data": {"source": "ASSET_KRW_CONVERSION", "reason": "missing_symbol"},
+        }
+    if asset.get("error") == "symbol_not_found":
+        return {
+            "reply": f"{asset.get('query')} 종목을 찾지 못했습니다.\n종목명이나 종목코드를 다시 확인해 주세요.",
+            "data": {"source": "ASSET_KRW_CONVERSION", "reason": "symbol_not_found"},
+        }
+
+    symbol = asset["symbol"]
+    display_name = asset.get("display_name") or symbol
+    label = f"{display_name}({symbol})" if display_name and display_name.upper() != symbol else symbol
+    current_price = _to_float(asset.get("current_price"))
+    currency = str(asset.get("currency") or "").upper()
+    broker_env = str(asset.get("broker_env") or "REAL").upper()
+    quantity = _detect_share_quantity(message)
+
+    if current_price <= 0:
+        return {
+            "reply": f"{label}의 현재가를 확인하지 못해 원화 환산을 진행할 수 없습니다.\n\n{KRW_CONVERSION_NOTICE}",
+            "data": {"source": "ASSET_KRW_CONVERSION", "symbol": symbol, "reason": "missing_price"},
+        }
+    if currency == "KRW":
+        return {
+            "reply": f"{label}은/는 이미 원화 기준 종목입니다.\n현재가: {_format_money(current_price, 'KRW')}\n\n{KRW_CONVERSION_NOTICE}",
+            "data": {
+                "source": "ASSET_KRW_CONVERSION",
+                "symbol": symbol,
+                "current_price": current_price,
+                "currency": currency,
+                "reason": "already_krw",
+            },
+        }
+    if currency != "USD":
+        return {
+            "reply": f"{label}의 통화가 {currency}라서 1차 원화 환산은 USD 종목만 지원합니다.\n\n{KRW_CONVERSION_NOTICE}",
+            "data": {
+                "source": "ASSET_KRW_CONVERSION",
+                "symbol": symbol,
+                "current_price": current_price,
+                "currency": currency,
+                "reason": "unsupported_currency",
+            },
+        }
+
+    rate_data = _get_usd_krw_rate(auth_header, broker_env)
+    rate = _to_float(rate_data.get("rate"))
+    if rate <= 0:
+        return {
+            "reply": f"USD/KRW 환율을 확인하지 못해 {label}의 원화 환산을 진행할 수 없습니다.\n\n{KRW_CONVERSION_NOTICE}",
+            "data": {"source": "ASSET_KRW_CONVERSION", "symbol": symbol, "reason": "missing_exchange_rate"},
+        }
+
+    converted_krw = current_price * rate * quantity
+    quantity_label = _format_quantity(quantity)
+    captured_at = rate_data.get("captured_at")
+    basis_line = f"{captured_at} 기준" if captured_at else "현재 조회 기준"
+    reply = "\n".join([
+        f"{label} 원화 환산 금액입니다.",
+        "",
+        f"{quantity_label}주 현재가: {_format_money(current_price, 'USD')}",
+        f"적용 환율: 1 USD = {rate:,.2f}원",
+        f"계산식: {current_price:,.2f} × {rate:,.2f} × {quantity_label} = 약 {converted_krw:,.0f}원",
+        f"출처: {rate_data.get('source') or 'TOSS'} / {basis_line}",
+        "",
+        KRW_CONVERSION_NOTICE,
+    ])
+    return {
+        "reply": reply,
+        "data": {
+            "source": "ASSET_KRW_CONVERSION",
+            "symbol": symbol,
+            "display_name": display_name,
+            "exchange": asset.get("exchange"),
+            "broker_env": broker_env,
+            "current_price": current_price,
+            "currency": currency,
+            "quantity": quantity,
+            "exchange_rate": rate,
+            "converted_krw": converted_krw,
+            "exchange_rate_source": rate_data.get("source"),
+            "captured_at": captured_at,
+        },
     }
 
 
@@ -3173,6 +3375,8 @@ def run_chatbot_tool(auth_header: str | None, message: str) -> dict | None:
         return get_investment_profile_reanalysis_guide()
     if _is_calendar_request(text):
         return guarded("get_market_calendar", get_market_calendar)
+    if _is_krw_conversion_request(text) and _has_concrete_symbol_query(text):
+        return guarded("get_asset_krw_conversion", get_asset_krw_conversion)
     if any(keyword in text for keyword in ["환율", "환전", "달러", "미달러", "엔화", "유로", "위안", "테더", "USDT"]):
         return guarded("get_exchange_rate", get_exchange_rate)
     if _is_asset_orderbook_request(text):

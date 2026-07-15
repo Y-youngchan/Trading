@@ -1,5 +1,6 @@
 from backend.services.chatbot import tool_registry
 from backend.services.chatbot import asset_ml_outlook
+from backend.services.chatbot.chat_service import ChatbotService
 
 
 def test_search_trade_history_displays_crypto_name_instead_of_symbol(monkeypatch):
@@ -26,6 +27,65 @@ def test_search_trade_history_displays_crypto_name_instead_of_symbol(monkeypatch
     assert result["data"]["source"] == "TRADE_HISTORY"
     assert "도지코인" in result["reply"]
     assert "/ DOGE /" not in result["reply"]
+
+
+def test_asset_krw_conversion_calculates_us_stock_price(monkeypatch):
+    monkeypatch.setattr(
+        tool_registry,
+        "_resolve_symbol",
+        lambda auth_header, query: {
+            "symbol": "AAPL",
+            "display_name": "Apple",
+            "asset_type": "STOCK",
+            "market": "US",
+        },
+    )
+
+    def fake_get_internal(path, auth_header, params=None):
+        if path == "/api/chart/quote":
+            return {"data": {"current_price": 315.44, "currency": "USD", "exchange": "TOSS"}}
+        if path == "/api/market/exchange-rate":
+            return {"data": {"rate": 1380, "source": "TOSS", "captured_at": "2026-07-15T10:00:00Z"}}
+        raise AssertionError(path)
+
+    monkeypatch.setattr(tool_registry, "_get_internal", fake_get_internal)
+
+    result = tool_registry.get_asset_krw_conversion("Bearer test", "애플 2주 원화로 얼마야")
+
+    assert result["data"]["source"] == "ASSET_KRW_CONVERSION"
+    assert result["data"]["converted_krw"] == 315.44 * 1380 * 2
+    assert "315.44 × 1,380.00 × 2" in result["reply"]
+    assert "실제 주문 금액은 환전 수수료, 주문 수수료, 체결가 변동에 따라 달라질 수 있습니다." in result["reply"]
+
+
+def test_last_asset_price_context_handles_krw_conversion_followup(monkeypatch):
+    service = ChatbotService()
+
+    def fake_conversion(auth_header, text, context=None):
+        return {
+            "reply": "환산 완료",
+            "data": {
+                "source": "ASSET_KRW_CONVERSION",
+                "symbol": context.get("symbol"),
+            },
+        }
+
+    monkeypatch.setattr("backend.services.chatbot.chat_service.get_asset_krw_conversion", fake_conversion)
+
+    result = service._run_pending_action(
+        "last_asset_price_context",
+        "Bearer test",
+        "환율 계산해줘",
+        {
+            "symbol": "AAPL",
+            "display_name": "Apple",
+            "current_price": 315.44,
+            "currency": "USD",
+        },
+    )
+
+    assert result["data"]["source"] == "ASSET_KRW_CONVERSION"
+    assert result["data"]["symbol"] == "AAPL"
 
 
 def test_match_min_amount_treats_bare_manwon_as_ten_thousand_won():

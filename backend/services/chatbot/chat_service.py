@@ -24,6 +24,7 @@ from backend.services.chatbot.tool_registry import (
     add_watchlist_item,
     create_trade_proposal_from_message,
     get_asset_candles,
+    get_asset_krw_conversion,
     get_asset_orderbook,
     get_asset_outlook,
     get_asset_price,
@@ -471,6 +472,12 @@ class ChatbotService:
                 {
                     "symbol": data.get("symbol"),
                     "display_name": data.get("display_name"),
+                    "asset_type": data.get("asset_type"),
+                    "market": data.get("market"),
+                    "exchange": data.get("exchange"),
+                    "broker_env": data.get("broker_env"),
+                    "current_price": data.get("current_price"),
+                    "currency": data.get("currency"),
                     "message": user_text,
                 },
             )
@@ -568,6 +575,8 @@ class ChatbotService:
             current_text = str(text or "").strip()
             if not symbol_name or not current_text:
                 return None
+            if any(keyword in current_text for keyword in ["환율 계산", "환율계산", "원화", "한화", "원으로", "원화로", "한화로", "원화 환산", "한화 환산"]):
+                return get_asset_krw_conversion(auth_header, current_text, pending_payload)
             intent = parse_order_intent(current_text)
             if not intent.is_order_request or intent.symbol_query:
                 return None
@@ -609,6 +618,11 @@ class ChatbotService:
             base = str(arguments.get("base_currency") or "").strip()
             quote = str(arguments.get("quote_currency") or "KRW").strip()
             return f"{base}/{quote} 환율 알려줘".strip()
+        if tool_name == "get_asset_krw_conversion":
+            query = str(arguments.get("query") or fallback_text).strip()
+            quantity = arguments.get("quantity")
+            quantity_text = f"{quantity}주" if quantity else ""
+            return " ".join(part for part in [query, quantity_text, "원화로 계산해줘"] if part)
         if tool_name == "get_market_calendar":
             market_country = str(arguments.get("market_country") or "").strip().upper()
             date = str(arguments.get("date") or "").strip()
@@ -659,6 +673,7 @@ class ChatbotService:
             "search_trade_history": search_trade_history,
             "list_open_orders": list_open_orders,
             "get_exchange_rate": get_exchange_rate,
+            "get_asset_krw_conversion": get_asset_krw_conversion,
             "get_market_calendar": get_market_calendar,
             "get_asset_price": get_asset_price,
             "get_asset_orderbook": get_asset_orderbook,

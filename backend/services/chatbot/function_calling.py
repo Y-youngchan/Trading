@@ -84,6 +84,18 @@ FUNCTION_SCHEMAS = [
         },
     },
     {
+        "name": "get_asset_krw_conversion",
+        "description": "해외주식 USD 현재가를 USD/KRW 환율로 원화 환산합니다. '애플 원화로 얼마야', 'AAPL 2주 한화로 계산해줘' 같은 요청에 사용합니다.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "종목명 또는 티커. 예: 애플, AAPL, 테슬라"},
+                "quantity": {"type": "number", "description": "환산할 주식 수. 기본값은 1"},
+            },
+            "required": ["query"],
+        },
+    },
+    {
         "name": "get_market_calendar",
         "description": "한국장 또는 미국장의 개장, 휴장, 정규장 운영 여부를 Toss 캘린더 API와 Supabase 캘린더 DB 기준으로 조회합니다. OpenAI 일반 지식으로 휴장 여부를 추측하지 않습니다.",
         "parameters": {

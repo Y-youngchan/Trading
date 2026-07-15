@@ -22,6 +22,7 @@ _TOOL_RISK_LEVELS = {
     "list_open_orders": RiskLevel.READ,
     "get_market_calendar": RiskLevel.READ,
     "get_exchange_rate": RiskLevel.READ,
+    "get_asset_krw_conversion": RiskLevel.READ,
     "get_asset_price": RiskLevel.READ,
     "get_asset_orderbook": RiskLevel.READ,
     "get_asset_candles": RiskLevel.READ,

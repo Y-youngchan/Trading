@@ -4834,6 +4834,10 @@ def _auto_backfill_stock_from_turnover(query_symbol: str) -> dict | None:
     kis_stock_master 테이블에 온디맨드로 자동 등록(Backfill)합니다.
     """
     from backend.services.supabase_client import safe_query_supabase_as_service_role
+    from backend.services.symbol_reconciliation_service import is_temporary_symbol
+
+    if is_temporary_symbol(query_symbol):
+        return None
 
     # 1. turnover_latest 에서 심볼 조회
     records = safe_query_supabase_as_service_role(
@@ -4900,10 +4904,28 @@ def lookup_symbol():
     import re
     from backend.services.symbol_metadata import SYMBOL_METADATA, search_crypto_symbols, COIN_DISPLAY_NAMES
     from backend.services.market_repository import MarketRepository
+    from backend.services.symbol_reconciliation_service import (
+        canonical_symbol_for,
+        filter_symbol_results,
+        is_temporary_symbol,
+    )
 
     # 1. 완전 일치 매칭 (하드코딩 SYMBOL_METADATA)
     for sym, meta in SYMBOL_METADATA.items():
         if sym.upper() == query or meta.get("display_name", "").upper() == query:
+            if is_temporary_symbol(sym):
+                canonical = canonical_symbol_for(sym)
+                canonical_meta = SYMBOL_METADATA.get(canonical)
+                if canonical_meta:
+                    return jsonify({
+                        "success": True,
+                        "data": {
+                            "symbol": canonical,
+                            "display_name": canonical_meta.get("display_name"),
+                            "asset_type": canonical_meta.get("asset_type"),
+                            "market": canonical_meta.get("market")
+                        }
+                    })
             return jsonify({
                 "success": True,
                 "data": {
@@ -4947,7 +4969,22 @@ def lookup_symbol():
 
     # 3. 주식 마스터 DB 정밀 매칭
     repo = MarketRepository()
-    db_results = repo.search_stock_master(query, limit=5)
+    if is_temporary_symbol(query):
+        canonical = canonical_symbol_for(query)
+        canonical_rows = repo.search_stock_master(canonical, limit=1)
+        for row in canonical_rows:
+            if str(row.get("symbol") or "").upper() == canonical:
+                clean_name = re.sub(r"^KR\d{10}", "", row.get("name") or row.get("display_name") or canonical).strip()
+                return jsonify({
+                    "success": True,
+                    "data": {
+                        "symbol": canonical,
+                        "display_name": clean_name,
+                        "asset_type": "STOCK",
+                        "market": row.get("market_country") or "US"
+                    }
+                })
+    db_results = filter_symbol_results(repo.search_stock_master(query, limit=5))
 
     for row in db_results:
         clean_name = re.sub(r"^KR\d{10}", "", row["name"]).strip()
@@ -4972,6 +5009,7 @@ def lookup_symbol():
             "limit": 10,
         },
     )
+    turnover_results = filter_symbol_results([*db_results, *(turnover_results or [])])
     for row in turnover_results or []:
         symbol = str(row.get("symbol") or "").strip().upper()
         name = str(row.get("name") or "").strip()
@@ -4988,6 +5026,12 @@ def lookup_symbol():
 
     # 4. 누락 해외 주식 온디맨드 자동 등록 (Auto-backfill) 시도
     if re.match(r"^[A-Z0-9]{1,10}$", query):
+        if is_temporary_symbol(query):
+            return jsonify({
+                "success": False,
+                "message": "상장 전 임시 종목코드는 정식 상장 후 사용할 수 없습니다. 정식 종목코드로 다시 검색해 주세요.",
+                "data": None,
+            }), 404
         backfilled = _auto_backfill_stock_from_turnover(query)
         if backfilled:
             return jsonify({
@@ -5117,6 +5161,7 @@ def search_symbols():
     import re
     from backend.services.symbol_metadata import SYMBOL_METADATA, search_crypto_symbols
     from backend.services.market_repository import MarketRepository
+    from backend.services.symbol_reconciliation_service import filter_symbol_results
 
     results = []
     seen = set()
@@ -5200,6 +5245,7 @@ def search_symbols():
                             })
 
     # 가독성을 위해 코드 길이 순 및 사전 순 정렬
+    results = filter_symbol_results(results)
     results.sort(key=lambda x: (len(x["symbol"]), x["display_name"]))
 
     return jsonify({"success": True, "data": results[:10]})

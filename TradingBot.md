@@ -1117,3 +1117,94 @@ GST 얼마야?
 등락률은 +0.00%입니다.
 현재 동양(001520)은/는 거래정지 상태입니다.
 ```
+
+## 2026-07-15 챗봇 해외주식 원화 환산 기능 추가
+
+### 목적
+
+챗봇에서 해외주식 현재가를 원화 기준으로 바로 계산할 수 있게 했습니다. `애플 원화로 얼마야?`처럼 첫 질문부터 종목과 원화 환산을 요청하는 경우와, `애플 현재가 얼마야?` 다음에 `환율 계산해줘`라고 이어 묻는 경우를 모두 지원합니다.
+
+### 수정 내용
+
+- `backend/services/chatbot/tool_registry.py`
+  - `get_asset_krw_conversion()` 도구를 추가했습니다.
+  - 해외주식 USD 현재가를 조회한 뒤 USD/KRW 환율을 가져와 `달러 × 환율 × 수량 = 원화`로 계산합니다.
+  - `애플 원화로 얼마야`, `AAPL 2주 한화로 계산해줘` 같은 직접 요청을 처리합니다.
+  - 답변 마지막에는 항상 `실제 주문 금액은 환전 수수료, 주문 수수료, 체결가 변동에 따라 달라질 수 있습니다.` 문구를 붙입니다.
+
+- `backend/services/chatbot/chat_service.py`
+  - 직전 현재가 조회 결과의 `current_price`, `currency`, `exchange`, `broker_env`를 대화 상태에 저장합니다.
+  - 직전 해외주식 조회 후 `환율 계산해줘`, `원화로 계산해줘` 같은 후속 질문이 들어오면 직전 종목 기준으로 원화 환산합니다.
+  - OpenAI function calling tool map에도 `get_asset_krw_conversion`을 연결했습니다.
+
+- `backend/services/chatbot/function_calling.py`
+  - `get_asset_krw_conversion` function schema를 추가했습니다.
+
+- `backend/services/chatbot/safety_guard.py`
+  - `get_asset_krw_conversion`을 읽기 전용 도구로 등록했습니다.
+
+- `backend/tests/test_chatbot_trade_history.py`
+  - 해외주식 USD 현재가와 USD/KRW 환율을 이용해 원화 환산하는 테스트를 추가했습니다.
+  - 직전 현재가 context에서 `환율 계산해줘` 후속 질문을 처리하는 테스트를 추가했습니다.
+
+### 기대 동작
+
+```text
+애플 2주 원화로 얼마야?
+```
+
+```text
+Apple(AAPL) 원화 환산 금액입니다.
+
+2주 현재가: $315.44
+적용 환율: 1 USD = 1,380.00원
+계산식: 315.44 × 1,380.00 × 2 = 약 870,614원
+출처: TOSS / 2026-07-15 기준
+
+실제 주문 금액은 환전 수수료, 주문 수수료, 체결가 변동에 따라 달라질 수 있습니다.
+```
+
+---
+
+## 2026-07-15 임시 해외주식 심볼 정리 및 관리자 점검 기능
+
+### 목적
+
+`SKHYV`처럼 정식 상장 전 사용되던 임시 해외주식 심볼이 `kis_stock_turnover_latest` 또는 온디맨드 backfill 과정을 통해 검색 후보에 남는 문제를 막기 위한 작업입니다.
+
+### 수정 내용
+
+- `backend/services/symbol_reconciliation_service.py`
+  - `symbol_aliases` DB 테이블에서 임시코드/정식코드 매핑을 읽도록 구성했습니다.
+  - DB migration에는 초기 데이터로 `SKHYV -> SKHY` 매핑을 추가했습니다.
+  - 정식 심볼이 존재하면 임시 심볼을 검색 결과에서 제외합니다.
+  - 임시 심볼만 존재하는 경우 `symbol_badge: "임시코드"`를 내려줄 수 있게 했습니다.
+  - 관리자 스캔, 비활성화, 삭제, 복구에 필요한 서비스 함수를 추가했습니다.
+
+- `backend/routes/trade.py`
+  - `/api/symbol/search`, `/api/symbol/lookup`에서 임시/폐기 심볼을 필터링합니다.
+  - 임시 심볼이 `kis_stock_master`에 자동 backfill되는 것을 차단합니다.
+
+- `backend/routes/admin_symbols.py`
+  - 관리자 종목 마스터 정리 API를 추가했습니다.
+  - 최신 스캔 결과 조회, 스캔 실행, 선택 비활성화, 선택 삭제, 선택 복구를 지원합니다.
+
+- `frontend/src/pages/AdminSymbolReconciliation.jsx`
+  - 관리자 화면에 종목 마스터 정리 탭을 추가했습니다.
+  - 요약 카드, 상태 필터, 결과 테이블, 선택 비활성화/삭제/복구 버튼을 제공합니다.
+
+- `frontend/src/components/SymbolSearch.jsx`
+  - 서버가 `symbol_badge`를 내려주는 경우 자동완성 목록에 `임시코드` 배지를 표시합니다.
+
+- `supabase/migrations/20260715110000_create_admin_symbol_reconciliation.sql`
+  - `admin_symbol_reconciliation_runs`
+  - `admin_symbol_reconciliation_items`
+  - `symbol_aliases`
+  - 위 테이블을 추가했습니다.
+  - `symbol_aliases`에 `SKHYV -> SKHY` 초기 매핑을 등록했습니다.
+
+### 기대 동작
+
+- `SK하이닉스 ADR` 검색 시 `SKHY`가 있으면 `SKHYV`는 표시되지 않습니다.
+- 임시코드만 존재하는 해외주식은 자동완성에 `임시코드` 배지를 붙일 수 있습니다.
+- 관리자는 관리자 페이지의 `종목 마스터 정리` 탭에서 의심 심볼을 스캔하고 정리할 수 있습니다.
