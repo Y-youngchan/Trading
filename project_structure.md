@@ -222,6 +222,8 @@ frontend/
         ├── assetDetailModel.js
         ├── assetDetailModel.test.mjs
         ├── AssetsTab.jsx
+        ├── assetsTabModel.js
+        ├── assetsTabModel.test.mjs
         ├── Dashboard.jsx
         ├── dashboardModel.js
         ├── dashboardModel.test.mjs
@@ -268,6 +270,12 @@ frontend/
   - `AssetDetail.jsx`와 `MobileAssetDetail.jsx`가 공유하는 주문 상태 라벨, 조건감시 라벨, 심볼 판별, 종목 유의사항 배지 tone 순수 유틸
 - `assetDetailModel.test.mjs`
   - `assetDetailModel.js`의 순수 함수 Node test
+- `AssetsTab.jsx`
+  - 계좌별 자산 요약, 자산 배분, 보유 종목, 코인 자산 이동/출금 모달을 제공하는 데스크톱 자산 탭
+- `assetsTabModel.js`
+  - `AssetsTab.jsx`와 `MobileAssetsTab.jsx`가 공유하는 통화 포맷, 계좌 요약 카드, 보유 종목 표시 행, 정렬, 배분 그래디언트 순수 유틸
+- `assetsTabModel.test.mjs`
+  - `assetsTabModel.js`의 순수 함수 Node test
 - `AdminInquiryPanel.jsx`
   - 3분리 모델 자동화 상태 모니터링 및 수동 검증 패널
 - `AdminMlData.jsx`
