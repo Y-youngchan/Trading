@@ -8,7 +8,7 @@ import {
   ActiveSignalPanel,
   AuditBadge,
   ExecutionChecklistPanel,
-  GuardSummary,
+  JobHistoryPanel,
   JobLogModal,
   ModelSwitchPanel,
   ReadinessPanel,
@@ -26,7 +26,6 @@ import {
   formatPath,
   formatPercent,
   formatReturnPercent,
-  formatTime,
   formatTrustValue,
   legacyAutomationPresets,
   operationalAutomationPresets,
@@ -239,118 +238,6 @@ function V8OptunaPanel({
         </div>
       ) : null}
     </section>
-  )
-}
-
-function JobHistoryPanel({ jobs = [], loading, error, onShowLog }) {
-  if (loading) {
-    return (
-      <div className="rounded-lg border border-slate-800 bg-[#0f172a] p-4 text-sm text-slate-400">
-        작업 이력을 불러오는 중입니다.
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="rounded-lg border border-red-800 bg-red-950/30 p-4 text-sm leading-6 text-red-300">
-        {error}
-      </div>
-    )
-  }
-
-  if (!jobs.length) {
-    return (
-      <div className="rounded-lg border border-slate-800 bg-[#0f172a] p-4 text-sm text-slate-400">
-        아직 기록된 작업이 없습니다.
-      </div>
-    )
-  }
-
-  return (
-    <div className="overflow-x-auto rounded-lg border border-slate-800 bg-[#0f172a]">
-      <table className="min-w-full text-left text-xs text-slate-300">
-        <thead className="text-[10px] uppercase tracking-wider text-slate-500">
-          <tr>
-            <th className="px-3 py-2">작업</th>
-            <th className="px-3 py-2">유형</th>
-            <th className="px-3 py-2">상태</th>
-            <th className="px-3 py-2">설정</th>
-            <th className="px-3 py-2">검증</th>
-            <th className="px-3 py-2">시작</th>
-            <th className="px-3 py-2">종료</th>
-            <th className="px-3 py-2 text-right">로그</th>
-          </tr>
-        </thead>
-        <tbody>
-          {jobs.map((job) => (
-            <tr key={job.id} className="border-t border-slate-800 align-top transition hover:bg-white/5">
-              <td className="px-3 py-2">
-                <p className="font-semibold text-white truncate max-w-[150px]" title={job.label || job.exchange || job.id}>
-                  {job.label || job.exchange || job.id}
-                </p>
-                {job.output ? (
-                  <p className="mt-1 truncate font-mono text-[10px] text-slate-500 max-w-[150px]" title={job.output}>
-                    {formatPath(job.output)}
-                  </p>
-                ) : null}
-                {job.failure_count ? (
-                  <p className="mt-1 text-[10px] text-amber-300">실패 심볼 {job.failure_count}건</p>
-                ) : null}
-              </td>
-              <td className="px-3 py-2 font-mono text-[10px] text-slate-400">{job.type}</td>
-              <td className="px-3 py-2">
-                <span className={`rounded border px-2 py-0.5 text-[9px] font-bold ${
-                  job.status === 'success'
-                    ? 'border-emerald-500/40 text-emerald-300 bg-emerald-950/20'
-                    : job.status === 'failed'
-                      ? 'border-red-500/40 text-red-300 bg-red-950/20'
-                      : 'border-ai-cyan/40 text-ai-cyan bg-ai-cyan/5'
-                }`}>
-                  {String(job.status || 'running').toUpperCase()}
-                </span>
-              </td>
-              <td className="px-3 py-2">
-                <p className="truncate font-mono text-[10px] text-slate-400 max-w-[150px]" title={job.config || job.interval || '-'}>
-                  {formatPath(job.config) || job.interval || '-'}
-                </p>
-              </td>
-              <td className="px-3 py-2">
-                <div className="min-w-[180px] space-y-1">
-                  {job.training_audit?.promotion_guard ? (
-                    <GuardSummary guardReport={job.training_audit.promotion_guard} compact />
-                  ) : job.guard_report ? (
-                    <GuardSummary guardReport={job.guard_report} compact />
-                  ) : job.serving_audit_report ? (
-                    <div className="space-y-1">
-                      <AuditBadge status={job.serving_audit_report.status}>
-                        {job.serving_audit_report.status === 'healthy' ? '서빙 정상' : '서빙 경고'}
-                      </AuditBadge>
-                      <p className="text-[10px] text-slate-500">
-                        차단 {job.serving_audit_report.blocking_count ?? 0}건
-                      </p>
-                    </div>
-                  ) : (
-                    <p className="text-[10px] text-slate-500">감사 정보 없음</p>
-                  )}
-                </div>
-              </td>
-              <td className="px-3 py-2 font-mono text-[10px] text-slate-400 whitespace-nowrap">{formatTime(job.started_at)}</td>
-              <td className="px-3 py-2 font-mono text-[10px] text-slate-400 whitespace-nowrap">{formatTime(job.finished_at)}</td>
-              <td className="px-3 py-2 text-right">
-                <button
-                  type="button"
-                  onClick={() => onShowLog?.(job)}
-                  className="rounded border border-slate-700 bg-slate-800/40 px-2 py-1 text-[10px] font-bold text-slate-300 transition hover:border-ai-cyan hover:text-white"
-                >
-                  로그 보기
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
   )
 }
 

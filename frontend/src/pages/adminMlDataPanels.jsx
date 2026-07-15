@@ -1,2 +1,3 @@
 export { AuditBadge, GuardSummary, JobLogModal, StatusPanel, VersionDeltaPanel } from './adminMlDataCorePanels.jsx'
+export { JobHistoryPanel } from './adminMlDataHistoryPanels.jsx'
 export { ActiveSignalPanel, ExecutionChecklistPanel, ModelSwitchPanel, ReadinessPanel, RegistryPanel, ReportHistoryPanel, ReportPanel, ServingAuditPanel, VersionComparisonTable } from './adminMlDataOperationalPanels.jsx'
