@@ -2,6 +2,7 @@ import json
 import math
 import os
 import re
+import uuid
 from decimal import Decimal, InvalidOperation, ROUND_DOWN
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
@@ -1862,7 +1863,49 @@ def create_trade_proposal(auth_header: str, arguments: dict) -> dict:
         "status": "PENDING",
         "raw_order_payload": raw_order_payload,
     }
-    created = query_supabase(auth_header, "trade_proposals", "POST", json_data=payload)
+    idempotency_key = str(values.get("idempotency_key") or "").strip()
+    if idempotency_key:
+        try:
+            payload["id"] = str(uuid.UUID(idempotency_key))
+        except (AttributeError, TypeError, ValueError) as error:
+            raise ValueError("제안 생성 멱등성 키가 올바르지 않습니다.") from error
+        existing = query_supabase(
+            auth_header,
+            "trade_proposals",
+            "GET",
+            params={"id": f"eq.{payload['id']}", "user_id": f"eq.{user_id}", "limit": 1},
+        ) or []
+        if existing:
+            record = existing[0]
+            existing_hash = str((record.get("raw_order_payload") or {}).get("order_hash") or "")
+            requested_hash = str(raw_order_payload.get("order_hash") or "")
+            if existing_hash != requested_hash:
+                raise ValueError("같은 멱등성 키를 다른 매매 제안에 재사용할 수 없습니다.")
+            return {
+                "reply": f"{symbol} {side} 매매 제안이 이미 생성되어 있습니다. 승인 카드에서 실행 여부를 선택해 주세요.",
+                "data": record,
+            }
+    try:
+        created = query_supabase(auth_header, "trade_proposals", "POST", json_data=payload)
+    except Exception as error:
+        normalized_error = str(error).casefold()
+        if not idempotency_key or not any(keyword in normalized_error for keyword in ("23505", "duplicate key", "unique constraint")):
+            raise
+        existing = query_supabase(
+            auth_header,
+            "trade_proposals",
+            "GET",
+            params={"id": f"eq.{payload['id']}", "user_id": f"eq.{user_id}", "limit": 1},
+        ) or []
+        if not existing:
+            raise
+        record = existing[0]
+        if str((record.get("raw_order_payload") or {}).get("order_hash") or "") != str(raw_order_payload.get("order_hash") or ""):
+            raise ValueError("같은 멱등성 키를 다른 매매 제안에 재사용할 수 없습니다.") from error
+        return {
+            "reply": f"{symbol} {side} 매매 제안이 이미 생성되어 있습니다. 승인 카드에서 실행 여부를 선택해 주세요.",
+            "data": record,
+        }
     record = (created[0] if isinstance(created, list) and created else created) or payload
     return {
         "reply": f"{symbol} {side} 매매 제안을 생성했습니다. 승인 카드에서 실행 여부를 선택해 주세요.",

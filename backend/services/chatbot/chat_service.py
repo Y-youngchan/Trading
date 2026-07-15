@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import re
 from datetime import datetime
 from typing import Callable
@@ -727,9 +728,12 @@ class ChatbotService:
         if structured_order and isinstance(structured_order, dict) and structured_order.get("is_structured_order"):
             self._emit_trace(trace_callback, "pending_action", "구조화 주문 폼 분석")
             if structured_order.get("is_conditional"):
-                return self._create_conditional_rule_from_structured(auth_header, user_id, structured_order)
-            else:
-                return self._create_proposal_from_structured(auth_header, user_id, structured_order)
+                return {
+                    "reply": "조건감시는 기본 매매 요청에서 등록할 수 없습니다. 보유 자산의 조건감시 설정을 이용해 주세요.",
+                    "actions": [],
+                    "data": {"source": "ORDER_ENTRY", "reason": "conditional_order_not_supported"},
+                }
+            return self._create_proposal_from_structured(auth_header, user_id, structured_order)
 
         text = str(message or "").strip()
         if not text:
@@ -752,7 +756,7 @@ class ChatbotService:
                     "available_tools": list_available_tools(),
                     "tool_result": tool_data,
                     "trace_steps": trace_steps,
-                    "source": "ORDER_FORM_REDIRECT",
+                    "source": "ORDER_ENTRY_REQUIRED",
                 },
             }
 
@@ -1050,168 +1054,80 @@ class ChatbotService:
         }
 
     def _create_proposal_from_structured(self, auth_header: str, user_id: str, structured_order: dict) -> dict:
-        from backend.services.chatbot.order_parser import ParsedOrderIntent
-        from backend.services.chatbot.tool_registry import create_trade_proposal_from_message
-
-        exchange = str(structured_order.get("exchange") or "TOSS").upper()
-        broker_env = str(structured_order.get("broker_env") or "REAL").upper()
-        side = str(structured_order.get("side") or "BUY").upper()
-        symbol_query = str(structured_order.get("symbol_query") or "").strip()
+        from backend.services.chatbot.tool_registry import create_trade_proposal
+        from backend.services.order_entry_service import normalize_order_request, verify_precheck_token
 
         try:
-            quantity = float(structured_order.get("quantity") or 0)
-        except (TypeError, ValueError):
-            quantity = 0.0
+            order = normalize_order_request(structured_order)
+        except ValueError as error:
+            return {
+                "reply": str(error),
+                "actions": [],
+                "data": {"source": "ORDER_ENTRY", "reason": "invalid_structured_order"},
+            }
 
-        price_val = structured_order.get("price")
+        precheck_token = str(structured_order.get("precheck_token") or "").strip()
+        if not precheck_token:
+            return {
+                "reply": "사전검증 결과가 없습니다. 주문 조건을 다시 검증해 주세요.",
+                "actions": [],
+                "data": {"source": "ORDER_ENTRY", "reason": "precheck_required"},
+            }
+
+        signing_secret = current_app.config.get("SECRET_KEY") if has_app_context() else None
+        signing_secret = os.getenv("ORDER_PRECHECK_SIGNING_SECRET") or signing_secret
+        if not signing_secret:
+            return {
+                "reply": "사전검증 보안 설정을 확인할 수 없습니다. 관리자에게 문의해 주세요.",
+                "actions": [],
+                "data": {"source": "ORDER_ENTRY", "reason": "precheck_configuration_missing"},
+            }
+
         try:
-            price = float(price_val) if price_val not in (None, "") else None
-        except (TypeError, ValueError):
-            price = None
+            verified = verify_precheck_token(
+                precheck_token,
+                user_id,
+                order,
+                str(signing_secret),
+            )
+        except ValueError as error:
+            return {
+                "reply": str(error),
+                "actions": [],
+                "data": {"source": "ORDER_ENTRY", "reason": "precheck_invalid"},
+            }
 
-        order_type = str(structured_order.get("order_type") or "LIMIT").upper()
-
-        intent = ParsedOrderIntent(
-            is_order_request=True,
-            side=side,
-            symbol_query=symbol_query,
-            quantity=quantity,
-            amount_krw=None,
-            price=price,
-            order_type=order_type,
-            broker_env=broker_env,
-            sell_ratio=None
+        precheck = verified["precheck"]
+        asset_type = "STOCK" if order["asset_type"] == "STOCK" else "CRYPTO"
+        market_country = "US" if asset_type == "STOCK" and any(char.isalpha() for char in order["symbol"]) else "KR"
+        currency = "USDT" if order["exchange"] in {"BINANCE", "BINANCE_UM_FUTURES"} else (
+            "USD" if market_country == "US" else "KRW"
         )
-
-        price_label = f"{price:,.0f}원" if price else "시장가"
-        mock_msg = f"[폼주문] {exchange} {broker_env} {symbol_query} {quantity}주 {side} {price_label}"
-
-        return create_trade_proposal_from_message(auth_header, mock_msg, intent)
-
-    def _create_conditional_rule_from_structured(self, auth_header: str, user_id: str, structured_order: dict) -> dict:
-        from backend.services.chatbot.tool_registry import _resolve_symbol, _lookup_current_price
-        from backend.services.supabase_client import query_supabase
-        from datetime import datetime, timezone
-
-        exchange = str(structured_order.get("exchange") or "TOSS").upper()
-        broker_env = str(structured_order.get("broker_env") or "REAL").upper()
-        side = str(structured_order.get("side") or "BUY").upper()
-        symbol_query = str(structured_order.get("symbol_query") or "").strip()
-
-        try:
-            quantity = float(structured_order.get("quantity") or 0)
-        except (TypeError, ValueError):
-            quantity = 0.0
-
-        order_type = str(structured_order.get("order_type") or "LIMIT").upper()
-        conditional_type = str(structured_order.get("conditional_type") or "BUY_LIMIT").upper()
-
-        try:
-            target_profit_rate = float(structured_order.get("target_profit_rate") or 0.0)
-        except (TypeError, ValueError):
-            target_profit_rate = 0.0
-
-        try:
-            stop_loss_rate = float(structured_order.get("stop_loss_rate") or 0.0)
-        except (TypeError, ValueError):
-            stop_loss_rate = 0.0
-
-        try:
-            conditional_price = float(structured_order.get("conditional_price") or 0)
-        except (TypeError, ValueError):
-            conditional_price = 0.0
-
-        conditional_mode = str(structured_order.get("conditional_mode") or "PROPOSAL").upper()
-
-        if not symbol_query:
-            return {"reply": "조건감시를 등록할 종목명이 유효하지 않습니다.", "actions": []}
-
-        try:
-            symbol_data = _resolve_symbol(auth_header, symbol_query)
-        except Exception:
-            return {"reply": f"'{symbol_query}' 종목을 찾지 못했습니다. 종목명을 확인해 주세요.", "actions": []}
-
-        symbol = symbol_data.get("symbol")
-        asset_type = symbol_data.get("asset_type", "STOCK")
-        market_country = "US" if symbol_data.get("market") == "US" or any(c.isalpha() for c in symbol) else "KR"
-        currency = "USD" if market_country == "US" else "KRW"
-
-        entry_price = 0.0
-        price_val = structured_order.get("price")
-        if price_val:
-            try:
-                entry_price = float(price_val)
-            except Exception:
-                pass
-        if entry_price <= 0:
-            entry_price = _lookup_current_price(auth_header, exchange, symbol, broker_env) or 0.0
-
-        if conditional_type == "STOP_LIMIT" and entry_price <= 0:
-            return {"reply": "기준 가격(현재가)을 확인할 수 없어 조건매도 감시를 등록할 수 없습니다. 잠시 후 다시 시도해 주세요.", "actions": []}
-
-        if conditional_type == "BUY_LIMIT" and conditional_price <= 0:
-            return {"reply": "조건 매수 기준 가격은 0보다 커야 합니다.", "actions": []}
-
-        exit_order_payload = {
-            "user_id": user_id,
-            "exchange": exchange,
+        futures_options = precheck.get("futures_options") or {}
+        return create_trade_proposal(auth_header, {
+            "idempotency_key": order["idempotency_key"],
+            "exchange": order["exchange"],
             "asset_type": asset_type,
-            "symbol": symbol,
-            "ticker": symbol,
-            "side": side,
-            "volume": quantity,
-            "ord_type": order_type,
-            "price": entry_price if conditional_type == "STOP_LIMIT" else conditional_price,
-            "broker_env": broker_env,
+            "symbol": order["symbol"],
+            "side": futures_options.get("side") or order["side"],
+            "order_type": order["order_type"],
+            "broker_env": order["broker_env"],
+            "quantity": order["quantity"],
+            "price": order["price"],
             "market_country": market_country,
             "currency": currency,
-            "status": "PENDING",
+            "position_side": futures_options.get("position_side"),
+            "reduce_only": futures_options.get("reduce_only", False),
+            "leverage": futures_options.get("leverage"),
+            "margin_type": futures_options.get("margin_type"),
             "raw_order_payload": {
-                "source": "AUTO_TRADING_RULE",
-                "trigger_side": conditional_type,
-                "requested_execution_mode": conditional_mode,
-                "actual_execution_mode": conditional_mode
-            }
-        }
-
-        rule_data = {
-            "user_id": user_id,
-            "exchange": exchange,
-            "asset_type": asset_type,
-            "ticker": symbol,
-            "symbol": symbol,
-            "broker_env": broker_env,
-            "entry_price": entry_price if conditional_type == "STOP_LIMIT" else conditional_price,
-            "investment_amount": (entry_price if conditional_type == "STOP_LIMIT" else conditional_price) * quantity,
-            "quantity": quantity,
-            "target_profit_rate": target_profit_rate,
-            "stop_loss_rate": stop_loss_rate,
-            "trigger_price": conditional_price if conditional_type == "BUY_LIMIT" else None,
-            "trigger_side": conditional_type,
-            "execution_mode": conditional_mode,
-            "auto_restart_on_partial_fill": True,
-            "exit_order_payload": exit_order_payload,
-            "status": "RUNNING",
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "updated_at": datetime.now(timezone.utc).isoformat()
-        }
-
-        try:
-            created = query_supabase(auth_header, "auto_trading_rules", "POST", json_data=rule_data)
-            record = (created[0] if isinstance(created, list) and created else created) or rule_data
-
-            cond_label = "이하 도달 시" if "LIMIT" in conditional_type or "STOP" in conditional_type else "이상 도달 시"
-            mode_label = "제안 생성(PROPOSAL)" if conditional_mode == "PROPOSAL" else "자동 매매(AUTO)"
-
-            reply_msg = (
-                f"[{symbol_data.get('display_name') or symbol}] 종목에 대한 조건 감시 규칙을 등록했습니다.\n"
-                f"- 조건: {conditional_price:,.0f}원 {cond_label} {side} ({mode_label})\n"
-                f"규칙이 활성화되어 백그라운드 워커가 감시를 시작합니다."
-            )
-            return {
-                "reply": reply_msg,
-                "data": {**rule_data, **(record if isinstance(record, dict) else {})},
-                "actions": []
-            }
-        except Exception as error:
-            return {"reply": f"조건감시 규칙 등록에 실패했습니다. 사유: {str(error)}", "actions": []}
+                "source": "ORDER_ENTRY",
+                "precheck_status": "OK",
+                "precheck": precheck,
+                "order_hash": verified["order_hash"],
+                "proposal_idempotency_key": order["idempotency_key"],
+                "intent": order["intent"],
+                "account_id": order["account_id"],
+                "futures_options": futures_options,
+            },
+        })
