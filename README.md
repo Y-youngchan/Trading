@@ -154,6 +154,7 @@ npm run build
 - 2026-07-15 Watchlist 1차 리팩토링: 데스크톱/모바일 관심종목 탭의 시장 필터, 차트 config, 캔들 정규화, 선택 종목 보정 로직을 `frontend/src/pages/watchlistModel.js`로 분리하고 effect 경고를 정리했습니다. 전체 lint 상태는 `0 errors`, `47 warnings`입니다.
 - 2026-07-15 Home 1차 리팩토링: 홈 시장 랭킹의 가격/등락률/거래대금 포맷, 국내·해외 판별, 랭킹 정렬, 관심종목 키 계산을 `frontend/src/pages/homeModel.js`로 분리하고 홈 로딩 effect 경고를 정리했습니다. 전체 lint 상태는 `0 errors`, `35 warnings`입니다.
 - 2026-07-15 MarketRankings 1차 리팩토링: 데스크톱/모바일 시장 랭킹 화면의 가격/등락률/거래대금 포맷과 관심종목 키 계산을 `homeModel.js` 재사용으로 통합하고 favorites effect 경고를 정리했습니다. 전체 lint 상태는 `0 errors`, `29 warnings`입니다.
+- 2026-07-15 Auth 화면 1차 정리: 데스크톱/모바일 로그인 화면의 미사용 이메일 로그인 상태와 핸들러, 회원가입 화면의 미사용 Supabase 응답 변수를 제거했습니다. 전체 lint 상태는 `0 errors`, `19 warnings`입니다.
 
 ## 주요 API
 
