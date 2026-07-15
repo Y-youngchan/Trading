@@ -101,6 +101,30 @@ def test_record_event_does_not_warn_when_insert_returns_empty_body(monkeypatch):
     assert warnings == []
 
 
+def test_record_event_logs_service_role_exception(monkeypatch, caplog):
+    def fake_query(endpoint, method="GET", json_data=None, params=None):
+        raise RuntimeError("missing chatbot_qa_events column")
+
+    monkeypatch.setattr(
+        supabase_client,
+        "query_supabase_as_service_role",
+        fake_query,
+    )
+
+    repository = ChatbotQAEventRepository()
+    repository.record_event(
+        event_type="TOOL_RESULT",
+        user_id="user-1",
+        request_id="req-1",
+        user_message="질문",
+        assistant_message="답변",
+        meta={"source": "PROJECT_TOOL"},
+    )
+
+    assert "챗봇 QA 이벤트 저장 실패" in caplog.text
+    assert "missing chatbot_qa_events column" in caplog.text
+
+
 def test_record_event_logs_warning_only_on_service_role_error(monkeypatch):
     warnings = []
 
