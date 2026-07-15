@@ -1,5 +1,7 @@
 import importlib
 
+import pytest
+
 from backend.services.chatbot import chat_service
 from backend.services.chatbot.chat_service import ChatbotService
 
@@ -72,3 +74,27 @@ def test_structured_order_keeps_existing_proposal_path(monkeypatch):
     )
 
     assert result == expected
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "삼성전자 10주 사줘",
+        "XRP 전량 팔아줘",
+        "1번 추천 종목 매수 제안해줘",
+        "비트코인 조건매도 등록해줘",
+    ],
+)
+def test_all_plain_order_messages_are_redirected_to_form(message):
+    policy = importlib.import_module("backend.services.chatbot.order_form_policy")
+
+    result = policy.build_order_form_redirect(message)
+
+    assert result is not None
+    assert result["data"]["source"] == "ORDER_FORM_REDIRECT"
+
+
+def test_investment_question_does_not_open_order_form():
+    policy = importlib.import_module("backend.services.chatbot.order_form_policy")
+
+    assert policy.build_order_form_redirect("비트코인 지금 살까?") is None
