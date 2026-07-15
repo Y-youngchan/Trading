@@ -311,7 +311,7 @@ frontend/
 - `adminMlDataCorePanels.jsx`
   - `AdminMlData.jsx`와 `MobileAdminMlData.jsx`가 공유하는 상태 패널, 감사 배지, 승격 검증 요약, 작업 로그 모달, 버전 차이 요약 컴포넌트
 - `adminMlDataOperationalPanels.jsx`
-  - `AdminMlData.jsx`와 `MobileAdminMlData.jsx`가 공유하는 활성 신호, 운영 모델 감사, 모델 교체 판단, 모델 레지스트리, 준비 상태, 실행 체크리스트, 실험 리포트 컴포넌트
+  - `AdminMlData.jsx`와 `MobileAdminMlData.jsx`가 공유하는 활성 신호, 운영 모델 감사, 모델 교체 판단, 모델 레지스트리, 준비 상태, 실행 체크리스트, 실험 리포트, 버전 비교 컴포넌트
 - `adminMlDataModel.js`
   - `AdminMlData.jsx`와 `MobileAdminMlData.jsx`가 공유하는 ML 프리셋, 경로/수치 포맷, 승격 검증 요약, 작업 로그 복사 텍스트, 데이터 품질 상세 순수 유틸
 - `adminMlDataModel.test.mjs`
