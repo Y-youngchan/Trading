@@ -1266,6 +1266,7 @@ export default function MobileDashboardPage({
               setShowMockAssets={setShowMockAssets}
               balanceLoading={balanceLoading}
               mobileLayout={mobileLayout}
+              loadAccountBalance={loadAccountBalance}
             />
           )}
           {activeTab === 'history' && <MobileTradeHistoryTab mobileLayout={mobileLayout} />}
