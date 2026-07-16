@@ -1,6 +1,6 @@
 import { useState, useEffect, useEffectEvent, useRef } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
-import { createChart, CandlestickSeries } from 'lightweight-charts'
+import { createChart, CandlestickSeries, LineSeries, HistogramSeries } from 'lightweight-charts'
 import { supabase, deleteUserWatchlistItem, ensureNewsSummaries, fetchUserWatchlist, normalizeWatchlistItem, upsertUserWatchlistItem } from '../supabaseClient'
 import { calculateSMA, getVolumeColor } from './chartUtils.js'
 import Header from '../components/Header.jsx'
@@ -2297,9 +2297,9 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
       })
 
       // 2. Add 3 types of Moving Average line series
-      const ma5Series = chart.addLineSeries({ color: '#ffd700', lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false })
-      const ma20Series = chart.addLineSeries({ color: '#a855f7', lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false })
-      const ma60Series = chart.addLineSeries({ color: '#06b6d4', lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false })
+      const ma5Series = chart.addSeries(LineSeries, { color: '#ffd700', lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false })
+      const ma20Series = chart.addSeries(LineSeries, { color: '#a855f7', lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false })
+      const ma60Series = chart.addSeries(LineSeries, { color: '#06b6d4', lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false })
 
       // 3. Add volume series (handle hybrid pane split or overlay)
       const volumeOptions = {
@@ -2310,8 +2310,8 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
       
       // Determine whether to split volume into pane 1 or overlay on pane 0 based on isChartExpanded
       const volumeSeries = isChartExpanded 
-        ? chart.addHistogramSeries(volumeOptions, 1) // Pane 1
-        : chart.addHistogramSeries({
+        ? chart.addSeries(HistogramSeries, volumeOptions, 1) // Pane 1
+        : chart.addSeries(HistogramSeries, {
             ...volumeOptions,
             priceScaleId: '', // Overlay mode
           }) // Pane 0 (Default overlay)
