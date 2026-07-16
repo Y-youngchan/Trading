@@ -133,11 +133,14 @@ export default function AssetsTab({
 
       setTransferMessage({ text: '이체가 성공적으로 완료되었습니다.', isError: false, detail: '' })
       
-      closeInternalTransferModal()
-      
       if (loadAccountBalance) {
         await loadAccountBalance()
       }
+
+      setTimeout(() => {
+        closeInternalTransferModal()
+        setTransferSubmitting(false)
+      }, 1500)
     } catch (error) {
       const message = getApiErrorMessage(error, '바이낸스 내부 이체에 실패했습니다.')
       setTransferMessage({
@@ -145,7 +148,6 @@ export default function AssetsTab({
         detail: message.detail,
         isError: true,
       })
-    } finally {
       setTransferSubmitting(false)
     }
   }
