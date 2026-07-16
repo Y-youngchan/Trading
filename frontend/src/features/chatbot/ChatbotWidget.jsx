@@ -191,7 +191,7 @@ function ChatMessage({ message, onAction }) {
         )}
         {hasMessageBody && (
           <div
-            className={`${hasDisclosureCards || hasNewsCards || hasMlRecommendationCards || hasTradeHistoryTable || hasWatchlistTable ? 'w-full' : 'whitespace-pre-wrap break-words'} rounded-lg px-3 py-2 text-xs leading-5 ${
+            className={`${!isUser ? 'w-full' : 'whitespace-pre-wrap break-words'} rounded-lg px-3 py-2 text-xs leading-5 ${
               isUser
                 ? 'bg-blue-600 text-[#ffffff]'
                 : 'border border-slate-700/80 bg-[#111827] text-slate-100'
@@ -211,6 +211,8 @@ function ChatMessage({ message, onAction }) {
               <TradeHistoryResults presentation={tradeHistoryPresentation} />
             ) : hasWatchlistTable && !message.isStreaming ? (
               <WatchlistResults presentation={watchlistPresentation} />
+            ) : isUser ? (
+              message.text
             ) : (
               <ChatMarkdown messageText={message.text} />
             )}

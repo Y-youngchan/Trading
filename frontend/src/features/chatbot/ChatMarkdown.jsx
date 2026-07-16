@@ -9,6 +9,14 @@ export default function ChatMarkdown({ messageText }) {
       remarkPlugins={[remarkGfm]}
       className="markdown-content whitespace-pre-wrap break-words text-xs leading-5 text-slate-100"
       components={{
+        a: ({ node, ...props }) => (
+          <a 
+            target="_blank" 
+            rel="noopener noreferrer" 
+            className="text-cyan-400 hover:underline break-all" 
+            {...props} 
+          />
+        ),
         table: ({ node, ...props }) => (
           <div className="my-2 overflow-x-auto rounded border border-slate-700/80">
             <table className="w-full min-w-full border-collapse text-left text-[11px]" {...props} />
@@ -31,7 +39,7 @@ export default function ChatMarkdown({ messageText }) {
         ul: ({ node, ...props }) => <ul className="my-2 ml-4 list-disc space-y-1" {...props} />,
         ol: ({ node, ...props }) => <ol className="my-2 ml-4 list-decimal space-y-1" {...props} />,
         li: ({ node, ...props }) => <li className="text-[11px] text-slate-300" {...props} />,
-        strong: ({ node, ...props }) => <strong className="font-bold text-cyan-300" {...props} />,
+        strong: ({ node, ...props }) => <strong className="font-bold text-slate-50" {...props} />,
         em: ({ node, ...props }) => <em className="italic text-slate-300" {...props} />,
       }}
     >
