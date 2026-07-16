@@ -18,6 +18,11 @@ def make_test_interceptor(
         return original_func(auth_header, message, **kwargs)
     return wrapper
 
+def make_mock_tool(tool_name: str) -> Callable[..., Any]:
+    def mock_tool(auth_header: str, message: str, **kwargs: Any) -> Any:
+        return {"success": True, "reply": f"Mocked {tool_name} reply", "data": {}}
+    return mock_tool
+
 def evaluate_scenario(captured: Dict[str, Any], expected: Dict[str, Any]) -> Dict[str, Any]:
     """기대값(expected)의 인자들이 캡처된 인자(captured)에 부분 집합으로 모두 포함되어 있는지 검사합니다(Subset Match)."""
     tool_match = captured.get("tool_name") == expected.get("tool_name")
@@ -54,10 +59,10 @@ def generate_report(results: list, metrics: dict, filepath: str) -> None:
     lines = [
         "# 챗봇 시나리오 통합 성능 진단 결과 보고서",
         f"\n* **진단 시간**: {now_str}",
-        f"* 총 테스트 케이스: {metrics['total']}",
+        f"* **총 테스트 케이스**: {metrics['total']}개",
         f"* 통과: {metrics['passed']}",
         f"* 실패: {metrics['failed']}",
-        f"* 성공률: {metrics['success_rate']}%\n",
+        f"* **최종 성공률**: {metrics['success_rate']}%\n",
         "## 1. 시나리오별 검증 세부 내역",
         "| 번호 | 발화 (Input) | 결과 | 세부 판정 |",
         "| :--- | :--- | :--- | :--- |"
@@ -245,11 +250,6 @@ def run_test_suite(report_path: str = "docs/superpowers/specs/2026-07-16-chatbot
                     original = getattr(chat_service_module, name, None)
                     if original:
                         original_funcs[name] = original
-                        
-                        def make_mock_tool(tool_name):
-                            def mock_tool(auth_header, message, **kwargs):
-                                return {"success": True, "reply": f"Mocked {tool_name} reply", "data": {}}
-                            return mock_tool
                         
                         mock_original = make_mock_tool(name)
                         wrapped = make_test_interceptor(mock_original, captured_dict[name])

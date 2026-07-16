@@ -55,8 +55,8 @@ def test_generate_report_creates_markdown_file(tmp_path):
     
     assert report_path.exists()
     content = report_path.read_text(encoding="utf-8")
-    assert "총 테스트 케이스: 1" in content
-    assert "성공률: 100.0%" in content
+    assert "**총 테스트 케이스**: 1개" in content
+    assert "**최종 성공률**: 100.0%" in content
 
 def test_run_test_suite_integration(tmp_path):
     report_path = tmp_path / "integration_report.md"
@@ -64,8 +64,8 @@ def test_run_test_suite_integration(tmp_path):
     
     assert report_path.exists()
     content = report_path.read_text(encoding="utf-8")
-    assert "총 테스트 케이스: 7" in content
-    assert "성공률: 100.0%" in content
+    assert "**총 테스트 케이스**: 7개" in content
+    assert "**최종 성공률**: 100.0%" in content
     assert result["metrics"]["total"] == 7
     assert result["metrics"]["passed"] == 7
     assert result["metrics"]["success_rate"] == 100.0
