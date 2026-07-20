@@ -315,25 +315,19 @@ def _is_calendar_request(text: str) -> bool:
 
 def _get_user_toss_calendar_client(auth_header: str, broker_env: str = "REAL") -> TossClient:
     user_id, _ = get_user_id_from_header(auth_header)
-    params = {
-        "user_id": f"eq.{user_id}",
-        "exchange": "eq.TOSS",
-        "broker_env": f"eq.{broker_env}",
-        "select": "encrypted_access_key,encrypted_secret_key,toss_account_seq",
-        "limit": "1",
-    }
-    records = safe_query_supabase(auth_header, "user_api_keys", "GET", params=params) or []
-    if records:
-        encryption_key = os.getenv("ENCRYPTION_KEY", "default-dev-encryption-key-32bytes!")
-        crypto = CryptoHelper(encryption_key)
-        record = records[0]
+    try:
+        from backend.services.credentials_gateway import CredentialsGateway
+        gateway = CredentialsGateway()
+        creds = gateway.get_credentials(auth_header, user_id, "TOSS", broker_env)
         return TossClient(
-            client_id=crypto.decrypt(record.get("encrypted_access_key")),
-            client_secret=crypto.decrypt(record.get("encrypted_secret_key")),
-            account_seq=record.get("toss_account_seq"),
+            client_id=creds["access_key"],
+            client_secret=creds["secret_key"],
+            account_seq=creds["toss_account_seq"],
             env=broker_env,
             user_id=user_id,
         )
+    except Exception:
+        pass
 
     client_id = os.getenv("SHARED_TOSS_CLIENT_ID") or os.getenv("TOSS_CLIENT_ID") or os.getenv("TOSS_API_KEY")
     client_secret = os.getenv("SHARED_TOSS_CLIENT_SECRET") or os.getenv("TOSS_CLIENT_SECRET") or os.getenv("TOSS_SECRET_KEY")
