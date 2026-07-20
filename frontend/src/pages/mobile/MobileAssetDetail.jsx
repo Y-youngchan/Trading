@@ -32,6 +32,7 @@ import {
   isUsStockSymbol,
   normalizeCandleTime,
   normalizeStockSymbol,
+  sortNewsByPublishedAtDesc,
 } from '../assetDetailModel.js'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5050'
@@ -995,7 +996,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
         const resData = await response.json()
         const items = resData.success && resData.data && resData.data.items ? resData.data.items : []
         if (items.length > 0) {
-          setNewsList(items)
+          setNewsList(sortNewsByPublishedAtDesc(items))
           return
         }
       }
@@ -1063,10 +1064,16 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
     setNewsSyncing(true)
     setNewsSyncMessage({ text: '', isError: false })
     try {
+      const authHeader = await getAuthHeader()
+      if (!authHeader) {
+        setNewsSyncMessage({ text: '로그인이 필요합니다.', isError: true })
+        return
+      }
       const response = await fetch(`${API_BASE_URL}/api/news/sync`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          Authorization: authHeader,
         },
         body: JSON.stringify({
           symbol: resolvedAssetType === 'STOCK' ? getExchangeSymbol(exchange) : getDetailBaseSymbol(),
@@ -2491,7 +2498,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
     orderPrecheck?.insufficient_holding
   ))
   const pageShellClassName = mobileLayout
-    ? 'min-h-screen bg-[#070b19] text-[#e2e2ec] font-inter'
+    ? 'bg-[#070b19] text-[#e2e2ec] font-inter'
     : 'min-h-screen bg-[#070b19] text-[#e2e2ec] font-inter'
   const pageContentClassName = mobileLayout
     ? 'mx-auto max-w-[430px] px-0 py-0'
@@ -2791,6 +2798,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
                   onRequestNewsSync={handleRequestNewsSync}
                   onToggleDisclosureAnalysis={handleToggleDisclosureAnalysis}
                   onRequestDisclosureSync={handleRequestDisclosureSync}
+                  compactEmptyState
                 />
 
               </MobileAssetNewsDisclosureSection>
