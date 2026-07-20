@@ -3800,3 +3800,136 @@ def _detect_currency_pair(text: str) -> tuple[str, str]:
     if non_krw:
         return non_krw[0], "KRW"
     return "USD", "KRW"
+
+
+def register_conditional_rule(
+    auth_header: str,
+    message: str,
+    query: str,
+    exchange: str = None,
+    broker_env: str = None,
+    target_profit_rate: float = None,
+    stop_loss_rate: float = None,
+    investment_amount: float = None,
+    quantity: float = None,
+    execution_mode: str = None,
+    **kwargs,
+) -> dict:
+    """주식 혹은 코인에 대해 익절 또는 손절 조건감시 자동매도 규칙을 등록합니다.
+
+    진입가(entry_price)를 알기 위해 현재 실시간 시세를 자동으로 조회하여 대입합니다.
+    """
+    symbol_data = _resolve_symbol(auth_header, query)
+    symbol = str(symbol_data.get("symbol") or query).upper()
+    ticker = str(symbol_data.get("ticker") or symbol).upper()
+    asset_type = str(symbol_data.get("asset_type") or "STOCK").upper()
+    market = str(symbol_data.get("market") or "").upper()
+    display_name = str(symbol_data.get("name") or symbol)
+
+    # 거래소 결정
+    if not exchange:
+        exchange = _default_exchange_for_asset(asset_type, market, symbol)
+    exchange = exchange.upper()
+
+    # 계좌 환경 결정 (기본값 MOCK)
+    if not broker_env:
+        broker_env = _detect_env(message) or "MOCK"
+    broker_env = broker_env.upper()
+
+    # 실행 모드 결정 (기본값 PROPOSAL - 안전지향)
+    if not execution_mode:
+        execution_mode = "AUTO" if any(keyword in message for keyword in ["자동", "자동매매"]) else "PROPOSAL"
+    execution_mode = execution_mode.upper()
+
+    # 현재가 조회 (진입 평단가로 설정)
+    price_res = get_asset_price(auth_header, message, query=query, exchange=exchange, broker_env=broker_env)
+    price_data = price_res.get("data") or {}
+    entry_price = _to_float(price_data.get("current_price") or price_data.get("price"))
+
+    if entry_price <= 0:
+        return {
+            "reply": f"'{display_name}'의 현재 시세를 조회할 수 없어 조건감시를 등록하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+            "data": {"error": "price_lookup_failed"},
+        }
+
+    # 투자 금액 및 수량 계산
+    amount = _to_float(investment_amount)
+    if amount <= 0:
+        amount = 100000.0  # 기본값 10만원
+
+    qty = _to_float(quantity)
+    if qty <= 0:
+        qty = amount / entry_price
+
+    # 백분율 기재 변환
+    tp_rate = _to_float(target_profit_rate)
+    sl_rate = _to_float(stop_loss_rate)
+
+    # Supabase RLS 정책 하에 사용자 ID를 가져옴
+    from backend.services.auth_service import get_user_id_from_header
+    try:
+        user_id, _ = get_user_id_from_header(auth_header)
+    except Exception:
+        return {
+            "reply": "인증 정보가 유효하지 않아 조건감시를 등록할 수 없습니다.",
+            "data": {"error": "unauthorized"},
+        }
+
+    # DB 인서트
+    row = {
+        "user_id": user_id,
+        "exchange": exchange,
+        "broker_env": broker_env,
+        "asset_type": asset_type,
+        "symbol": symbol,
+        "ticker": ticker,
+        "entry_price": entry_price,
+        "investment_amount": amount,
+        "quantity": qty,
+        "target_profit_rate": tp_rate if tp_rate > 0 else None,
+        "stop_loss_rate": sl_rate if sl_rate > 0 else None,
+        "execution_mode": execution_mode,
+        "status": "RUNNING",
+    }
+
+    try:
+        safe_query_supabase(
+            auth_header,
+            "auto_trading_rules",
+            "POST",
+            body=row,
+        )
+    except Exception as error:
+        logger.exception("Failed to insert auto trading rule: %s", str(error))
+        return {
+            "reply": f"조건감시 데이터베이스 등록 중 오류가 발생했습니다: {str(error)[:100]}",
+            "data": {"error": "db_insert_failed"},
+        }
+
+    # 유저 확인 텍스트 포맷
+    cond_parts = []
+    if tp_rate > 0:
+        cond_parts.append(f"익절: +{tp_rate}% (목표가 약 {entry_price * (1 + tp_rate/100):,.0f}원)")
+    if sl_rate > 0:
+        cond_parts.append(f"손절: -{sl_rate}% (손절가 약 {entry_price * (1 - sl_rate/100):,.0f}원)")
+    cond_text = ", ".join(cond_parts) if cond_parts else "설정된 조건 없음 (규칙이 등록되지 않았거나 비율이 0입니다)"
+
+    mode_text = "즉시 자동 매도(AUTO)" if execution_mode == "AUTO" else "사용자 승인 대기 매도(PROPOSAL)"
+
+    return {
+        "reply": (
+            f"✅ **조건감시 자동매도 규칙이 등록되었습니다.**\n\n"
+            f"- **자산**: {display_name} ({symbol})\n"
+            f"- **거래소 / 계좌**: {exchange} / {broker_env}\n"
+            f"- **기준 현재가 (진입 평단가)**: {entry_price:,.0f}원\n"
+            f"- **수량 / 투자금액**: {qty:,.4f}개 / {amount:,.0f}원\n"
+            f"- **감시 조건**: {cond_text}\n"
+            f"- **수행 동작**: {mode_text}\n\n"
+            f"*백그라운드 워커가 10초 주기로 현재가를 감시하며 조건 도달 시 지정하신 동작을 수행합니다.*"
+        ),
+        "data": {
+            "source": "REGISTER_CONDITIONAL_RULE",
+            "rule": row,
+        },
+    }
+

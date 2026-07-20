@@ -26,6 +26,7 @@ _TOOL_FUNCTION_MAP: dict[str, Any] = {
     "get_crypto_market_context": tool_registry.get_crypto_market_context,
     "get_asset_outlook": tool_registry.get_asset_outlook,
     "search_web": tool_registry.search_web,
+    "register_conditional_rule": tool_registry.register_conditional_rule,
 }
 
 
@@ -97,7 +98,21 @@ def execute_tool_call(tool_name: str, arguments: dict, auth_header: str) -> str:
 
     tool_message = _build_tool_message(tool_name, arguments, "")
     try:
-        result = tool_func(auth_header, tool_message, **arguments)
+        import inspect
+        sig = inspect.signature(tool_func)
+        has_var_keyword = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
+
+        # 전달할 키워드 인자 필터링
+        valid_args = {}
+        for k, v in arguments.items():
+            # query 인자는 기존 도구에서 message(두번째 포지셔널)에 대응하므로 제외하거나,
+            # 함수가 명시적으로 'query' 매개변수를 가지고 있는 경우에만 보냅니다.
+            if k == "query" and "query" not in sig.parameters:
+                continue
+            if has_var_keyword or k in sig.parameters:
+                valid_args[k] = v
+
+        result = tool_func(auth_header, tool_message, **valid_args)
     except Exception as error:
         logger.exception("Tool execution failed: tool=%s", tool_name)
         return json.dumps(
