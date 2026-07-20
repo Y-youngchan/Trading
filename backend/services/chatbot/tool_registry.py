@@ -3878,6 +3878,11 @@ def register_conditional_rule(
             "data": {"error": "unauthorized"},
         }
 
+    # target_profit_rate와 stop_loss_rate의 NOT NULL 제약조건 우회 보정
+    # 사용자가 명시하지 않은 한쪽 조건은 트리거가 불가능한 값(익절 999%, 손절 -99%)으로 대입하여 DB 제약조건을 통과시킵니다.
+    db_tp_rate = tp_rate if tp_rate > 0 else 999.0
+    db_sl_rate = sl_rate if sl_rate > 0 else -99.0
+
     # DB 인서트
     row = {
         "user_id": user_id,
@@ -3889,8 +3894,8 @@ def register_conditional_rule(
         "entry_price": entry_price,
         "investment_amount": amount,
         "quantity": qty,
-        "target_profit_rate": tp_rate if tp_rate > 0 else None,
-        "stop_loss_rate": sl_rate if sl_rate > 0 else None,
+        "target_profit_rate": db_tp_rate,
+        "stop_loss_rate": db_sl_rate,
         "execution_mode": execution_mode,
         "status": "RUNNING",
     }

@@ -64,7 +64,7 @@ def test_register_conditional_rule_success():
         assert rule["broker_env"] == "REAL"  # COINONE은 모의투자가 없으므로 REAL로 강제 설정됨
         assert rule["entry_price"] == 1600.0
         assert rule["target_profit_rate"] == 3.0
-        assert rule["stop_loss_rate"] is None
+        assert rule["stop_loss_rate"] == -99.0  # NOT NULL 제약조건 우회 보정값 -99.0 확인
         assert rule["execution_mode"] == "PROPOSAL"  # "자동" 키워드가 없으므로 기본값 PROPOSAL
         assert rule["status"] == "RUNNING"
 
@@ -110,3 +110,4 @@ def test_register_conditional_rule_auto_mode():
 
         rule = result["data"]["rule"]
         assert rule["execution_mode"] == "AUTO"  # "자동매매" 키워드가 있으므로 AUTO로 설정되어야 함
+        assert rule["stop_loss_rate"] == -99.0  # NOT NULL 제약조건 우회 보정값 -99.0 확인
