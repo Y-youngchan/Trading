@@ -31,6 +31,10 @@ class AgentState(TypedDict):
     auth_header: str
     request_id: str
     tool_round: int
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    model: str
 
 
 def _should_continue(state: AgentState) -> str:
@@ -65,7 +69,46 @@ def _call_model_node(state: AgentState, llm: BaseChatModel) -> dict:
     tool_schemas = build_tool_schemas()
     llm_with_tools = llm.bind_tools(tool_schemas)
     response = llm_with_tools.invoke(messages)
-    return {"messages": [response]}
+
+    prompt_tokens = 0
+    completion_tokens = 0
+    total_tokens = 0
+    model = ""
+
+    # usage_metadata 체크 (LangChain 0.2+ 공통 표준)
+    if hasattr(response, "usage_metadata") and response.usage_metadata:
+        prompt_tokens = response.usage_metadata.get("input_tokens", 0)
+        completion_tokens = response.usage_metadata.get("output_tokens", 0)
+        total_tokens = response.usage_metadata.get("total_tokens", 0)
+
+    # response_metadata 체크 (공급자별 폴백)
+    metadata = getattr(response, "response_metadata", {}) or {}
+    if not total_tokens and "token_usage" in metadata:
+        token_usage = metadata["token_usage"] or {}
+        prompt_tokens = token_usage.get("prompt_tokens", 0)
+        completion_tokens = token_usage.get("completion_tokens", 0)
+        total_tokens = token_usage.get("total_tokens", 0)
+
+    # 모델명 추출
+    model = metadata.get("model_name") or metadata.get("model") or ""
+    if not model and hasattr(llm, "model_name"):
+        model = llm.model_name
+    elif not model and hasattr(llm, "model"):
+        model = llm.model
+    if not model:
+        model = "unknown"
+
+    accumulated_prompt = (state.get("prompt_tokens") or 0) + prompt_tokens
+    accumulated_completion = (state.get("completion_tokens") or 0) + completion_tokens
+    accumulated_total = (state.get("total_tokens") or 0) + total_tokens
+
+    return {
+        "messages": [response],
+        "prompt_tokens": accumulated_prompt,
+        "completion_tokens": accumulated_completion,
+        "total_tokens": accumulated_total,
+        "model": model,
+    }
 
 
 def _tools_node(state: AgentState) -> dict:
@@ -152,6 +195,10 @@ def run_agent(
         "auth_header": auth_header,
         "request_id": request_id,
         "tool_round": 0,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "model": "",
     }
 
     final_state = agent.invoke(initial_state)
@@ -184,6 +231,12 @@ def run_agent(
             "tool_results": tool_results,
             "tool_rounds": final_state.get("tool_round") or 0,
             "source": "LANGGRAPH_AGENT",
+            "model": final_state.get("model") or "unknown",
+            "usage": {
+                "prompt_tokens": final_state.get("prompt_tokens") or 0,
+                "completion_tokens": final_state.get("completion_tokens") or 0,
+                "total_tokens": final_state.get("total_tokens") or 0,
+            },
         },
     }
 
@@ -222,12 +275,20 @@ def stream_agent(
         "auth_header": auth_header,
         "request_id": request_id,
         "tool_round": 0,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "model": "",
     }
 
     trace_steps: list[dict] = [{"kind": "request", "label": "요청 분석"}]
     reply_parts: list[str] = []
     tool_results: list[dict] = []
     tool_rounds = 0
+    prompt_tokens = 0
+    completion_tokens = 0
+    total_tokens = 0
+    model = "unknown"
 
     for event in agent.stream(initial_state, stream_mode="updates"):
         for node_name, node_output in event.items():
@@ -261,6 +322,14 @@ def stream_agent(
                             on_trace(step)
             if "tool_round" in node_output:
                 tool_rounds = node_output["tool_round"]
+            if "prompt_tokens" in node_output:
+                prompt_tokens = node_output["prompt_tokens"]
+            if "completion_tokens" in node_output:
+                completion_tokens = node_output["completion_tokens"]
+            if "total_tokens" in node_output:
+                total_tokens = node_output["total_tokens"]
+            if "model" in node_output:
+                model = node_output["model"]
 
     reply = "".join(reply_parts).strip()
     if not reply:
@@ -276,5 +345,11 @@ def stream_agent(
             "tool_results": tool_results,
             "tool_rounds": tool_rounds,
             "source": "LANGGRAPH_AGENT",
+            "model": model,
+            "usage": {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": total_tokens,
+            },
         },
     }

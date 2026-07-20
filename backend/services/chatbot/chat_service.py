@@ -325,6 +325,29 @@ class ChatbotService:
         if str(pending_action or "").startswith("trade_proposal_missing_"):
             self._consume_pending_action(auth_header, user_id)
 
+    @staticmethod
+    def _is_simple_greeting(text: str) -> bool:
+        normalized = str(text or "").replace(" ", "").replace("!", "").replace("~", "").replace("?", "").strip()
+        return normalized in {
+            "안녕", "안녕하세요", "안뇽", "반가워", "반갑습니다", "하이", "hi", "hello", "오하요", "니하오", "방가"
+        }
+
+    @staticmethod
+    def _clean_json_reply(text: str) -> str:
+        """만약 LLM이 오작동하여 [{'type': 'text', 'text': '...'}] 형태의 JSON 문자열을 생성했을 경우 자연어 텍스트만 추출합니다."""
+        trimmed = str(text or "").strip()
+        if trimmed.startswith("[") and trimmed.endswith("]"):
+            try:
+                import ast
+                parsed = ast.literal_eval(trimmed)
+                if isinstance(parsed, list) and len(parsed) > 0:
+                    item = parsed[0]
+                    if isinstance(item, dict) and "text" in item:
+                        return str(item["text"]).strip()
+            except Exception:
+                pass
+        return text
+
     def _build_prompt_for_user(
         self,
         auth_header: str | None,
@@ -349,6 +372,10 @@ class ChatbotService:
                 memory_context = ""
         if memory_context:
             prompt_parts.append(memory_context)
+
+        # 단순 인사말일 경우 RAG 참고자료 조회를 건너뛰어 불필요한 노이즈 유입을 방지합니다.
+        if self._is_simple_greeting(user_message):
+            return "\n\n".join(prompt_parts)
 
         self._emit_trace(trace_callback, "rag", "RAG 벡터검색")
         rag_context, _ = self.rag_service.build_context(auth_header, user_id, user_message)
@@ -766,7 +793,26 @@ class ChatbotService:
             self._emit_trace(trace_callback, "agent", "Agent 실행")
             result = run_agent(self.agent, **agent_kwargs)
 
+        # 토큰 사용량 로깅 추가
+        meta = result.get("meta") or {}
+        usage = meta.get("usage")
+        model = meta.get("model")
+        if usage:
+            try:
+                self.llm_client._record_actual_usage(
+                    auth_header=auth_header,
+                    user_id=user_id,
+                    usage=usage,
+                    request_type="agent_chat",
+                    request_id=request_id,
+                    model=model,
+                )
+            except Exception:
+                logger.exception("LangGraph Agent 토큰 사용량 로깅 실패")
+
         reply_text = result.get("reply") or ""
+        reply_text = self._clean_json_reply(reply_text)
+        result["reply"] = reply_text
         self._record_exchange(auth_header, user_id, text, reply_text)
 
         return result
@@ -1100,6 +1146,8 @@ class ChatbotService:
                 }
 
         reply_text = result["reply"]
+        reply_text = self._clean_json_reply(reply_text)
+        result["reply"] = reply_text
         self._record_exchange(auth_header, user_id, text, reply_text)
         self._maybe_set_pending_from_reply(auth_header, user_id, text, reply_text)
 
