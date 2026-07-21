@@ -50,6 +50,8 @@ import {
 } from '../dashboardModel.js'
 
 const DASHBOARD_API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5050'
+
+// 모바일 대시보드는 잔고, 관심종목, 거래내역, 설정, 관리자 탭을 한 화면 안에서 전환합니다.
 const DASHBOARD_TAB_BROWSER_TITLES = {
   dashboard: 'ANTRY - 대시보드',
   watchlist: 'ANTRY - 관심종목',
@@ -58,6 +60,7 @@ const DASHBOARD_TAB_BROWSER_TITLES = {
   settings: 'ANTRY - 설정',
   admin: 'ANTRY - 관리자',
 }
+
 
 const fetchDashboardWatchlistCurrentPrice = async (item = {}, authHeader = '') => {
   if (!item.id) return null
@@ -159,6 +162,7 @@ export default function MobileDashboardPage({
   hideSidebar = true,
   mobileLayout = true,
 }) {
+  // URL의 tab 값을 기준으로 현재 모바일 대시보드 탭을 복원해 새로고침 후에도 같은 위치를 유지합니다.
   const [searchParams, setSearchParams] = useSearchParams()
   const [activeTab, setActiveTab] = useState(() => normalizeDashboardTab(searchParams.get('tab')))
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
