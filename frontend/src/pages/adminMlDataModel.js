@@ -190,8 +190,9 @@ export const automationPresets = [
   },
 ]
 
-export const operationalAutomationPresets = automationPresets.filter((preset) => ['v8', 'v10', 'split-v1'].includes(preset.version))
-export const legacyAutomationPresets = automationPresets.filter((preset) => !['v8', 'v10', 'split-v1'].includes(preset.version))
+export const operationalAutomationPresets = automationPresets.filter((preset) => ['stock-v8-full', 'crypto-v10-full', 'kr-stock-v1-full', 'us-stock-v1-full'].includes(preset.key))
+export const legacyAutomationPresets = automationPresets.filter((preset) => !['stock-v8-full', 'crypto-v10-full', 'kr-stock-v1-full', 'us-stock-v1-full'].includes(preset.key))
+
 export const v8TuningPresets = tuningPresets.filter((preset) => ['v8', 'v10'].includes(preset.version))
 
 

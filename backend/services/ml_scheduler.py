@@ -355,8 +355,9 @@ def start_ml_automation_scheduler(ml_automation_enabled: bool, supabase_service_
                         if locked:
                             last_crypto_hour = crypto_slot_str
                             try:
-                                # v9: 30분 캔들 + 잔차 수익률 라벨 — 현재 serving 코인 모델과 동일 config
-                                preset = resolve_automation_preset("crypto-v9-full")
+                                # v10: 248개 알트코인 전종목 + 김치프리미엄 & 펀딩비 피처 — 현재 serving 코인 모델과 동일 config
+                                preset = resolve_automation_preset("crypto-v10-full")
+
                                 dataset_config = preset["dataset"]
                                 training_config = preset["training"]
                                 
