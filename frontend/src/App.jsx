@@ -19,6 +19,7 @@ import { INQUIRY_ROUTES } from './dashboardConstants.js'
 import ChatbotWidget from './features/chatbot/ChatbotWidget.jsx'
 import useDeviceType from './hooks/useDeviceType.js'
 import MobileRoutes from './routes/MobileRoutes.jsx'
+import RouteTracker from './RouteTracker.js'
 
 function AdminProtectedRoute({ isLoggedIn, userProfile, children }) {
   const hasAccess = isLoggedIn && userProfile?.role === 'ADMIN'
@@ -453,6 +454,7 @@ export default function App() {
 
   return (
     <Router>
+      <RouteTracker />
       <AppShell
         isLoggedIn={isLoggedIn}
         authReady={authReady}
